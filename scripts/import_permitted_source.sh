@@ -54,6 +54,13 @@ git -C "$WORKSPACE" merge --allow-unrelated-histories --no-edit --no-ff \
 # Re-audit the merged development branch, including all history.
 python "$WORKSPACE/scripts/check_public_tree.py" --repo "$WORKSPACE" --history --require-source
 
+# Parse source without installing dependencies or executing game code.
+python -m compileall -q "$WORKSPACE/source"
+while IFS= read -r -d '' file; do
+  node --check "$file"
+done < <(find "$WORKSPACE/source" -type f \\( -name '*.js' -o -name '*.cjs' \\) -print0)
+echo "PASS: source-only Python and JavaScript syntax checks"
+
 echo "Filtered upstream commit: $(git -C "$WORKSPACE" rev-parse upstream-source)"
 echo "Development commit:      $(git -C "$WORKSPACE" rev-parse develop)"
 echo "Verifying branch push is new (no force; no release tags)"
