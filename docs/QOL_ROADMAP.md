@@ -70,14 +70,19 @@ authorized runtime.
 
 ## Develop after receipt and eligible-source rules are verified
 
-6. **Adjustable EXP and gil**: pure opt-in pre-credit multiplier
-   design with original 1x defaults, separately for rank EXP,
-   unit EXP, and positive *earned* gil. Existing
-   `player_state.py::{add_rank_exp,add_unit_exp,add_currency}`
-   also support costs, stored residual EXP and player archive
-   counters; scaling already-stored totals or spending is unsafe.
-   Runtime settlement paths (notably absent `ffbe_battle.py`) must
-   be verified before actually changing earnings.
+6. **Adjustable EXP and gil — pure source-only preview IMPLEMENTED**:
+   `source/server/progression_multiplier_preview.py` projects
+   independent rank EXP, unit EXP and earned-gil amounts, all at
+   default 1x. Its optional 1x–5x whole-number settings require
+   nonnegative earnings, reject unknown channels and potential
+   debits, and never mutate wallet, rank, roster, existing EXP,
+   archive counters, receipts or saves. The synthetic
+   `test_progression_multiplier_preview.py` covers these guards.
+   This is not a real earning multiplier: source eligibility,
+   normal mission credit paths (missing `ffbe_battle.py`),
+   residual level-up rules and exactly-once payout integration
+   need separate evidence. See
+   `docs/PROGRESSION_MULTIPLIER_PREVIEW.md`.
 7. **Adjustable drop rates**: candidate drops and actual awarded drops
    are different channels (see `ffbe_config.py` and
    `source/docs/reference/tbmonkey_api_calls/validated_endpoints.md`).
@@ -125,9 +130,9 @@ authorized runtime.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next source-only research target: **adjustable EXP/gil eligibility
-boundaries**, beginning with a review and pure default-1x
-configuration design only. Do not scale payouts, spending,
-persisted counters, completed receipts or actual gameplay without
-verified source-specific credit paths and separate authorization.
-Keep repeat-stop and native battle controls on HOLD.
+Next source-only research candidate: **adjustable drop-rate
+eligibility and original roll boundary**; distinguish a pure
+hypothetical rate preview from a real gameplay drop modifier.
+Do not manipulate payouts, spending, cleared challenges or
+existing rewards. Keep repeat-stop and native battle controls
+on HOLD until authoritative runtime evidence exists.
