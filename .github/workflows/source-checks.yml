@@ -65,6 +65,7 @@ jobs:
           set -euo pipefail
           if [[ -f source/exvius/test_mission_repeat.js ]]; then
             node source/exvius/test_mission_repeat.js
+            node source/exvius/test_repeat_stop_policy.js
             node source/exvius/test_home_carousel.js
             node source/exvius/test_android_display.js
           else
