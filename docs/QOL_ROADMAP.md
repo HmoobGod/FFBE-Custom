@@ -21,11 +21,17 @@ authorized runtime.
    `test_unit_roster_view.py` uses synthetic roster data. **NOT a native
    game screen**, not connected to real saves or client wire replies.
    Client in-game sorting requires separate UI verification.
-2. **Party presets — preview only**: `ffbe_player.py::apply_party_edit`
-   validates owned instance IDs, deck IDs and slot uniqueness. Implement
-   a pure per-deck *preview/compare* helper first. Applying/saving
-   presets is blocked pending explicit user authorization, native UI
-   ownership and save migration checks.
+2. **Party presets — source-only preview IMPLEMENTED**:
+   `source/server/party_preset_preview.py` compares owned-unit instance IDs,
+   member types, unique slot positions, names, and existing target deck IDs
+   using the exact decoded PlayerState member/deck fields validated by
+   `ffbe_player.py::apply_party_edit`. Normal parties have 5 slots;
+   supported special modes have 6. `test_party_preset_preview.py`
+   exercises synthetic comparison, invalid ownership, duplicate
+   instances/slots, unsupported modes, no save mutations, and no
+   automatic active-deck switching. **No native UI or live save writes.**
+   Applying/saving presets remains blocked pending separate UI,
+   ownership, and save-compatibility evidence.
 3. **Bulk unit management — preview only**:
    `ffbe_player.py::serve_unit_mix` already validates base/donor
    uniqueness and uses a durable hash receipt. Safe next scope:
@@ -100,6 +106,7 @@ authorized runtime.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next safely independent feature after unit roster view: a standalone
-read-only **party preset preview/compare** with synthetic tests, not
-automatic deck editing or writing presets to saves.
+Next safely independent QoL feature after the unit and party view helpers:
+a standalone **bulk fusion/material selection preview** using only
+synthetic roster data and the existing validated server fusion input
+rules. Do not perform fusion or modify inventory in that preview.
