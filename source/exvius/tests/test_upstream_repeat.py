@@ -17,6 +17,9 @@ for name in set(re.findall(r'F_[A-Z0-9_]+\.ndjson', source)):
     (mst/name).write_text('')
 (mst/'F_UNIT_MST.ndjson').write_text('\n'.join(json.dumps({'3HriTp6B':mid,'aU3o2D4t':100}) for mid in ['100000102','100000202']))
 (mst/'F_EQUIP_ITEM_MST.ndjson').write_text('\n'.join(json.dumps({'J1YX9kmM':mid}) for mid in ['302000100','404000200','406000100','409000100','403046900']))
+# The item reward fixture must be representable in the synthetic item MST;
+# PlayerState rejects non-catalogued bag rewards rather than inventing items.
+(mst/'F_ITEM_MST.ndjson').write_text(json.dumps({'tL6G9egd':'101','G4L0YIB2':'Synthetic Test Item'}))
 sys.path[:0]=[str(ROOT.parents[1]/'server')]
 from exvius_repeat import begin_attempt,complete_attempt
 from player_state import PlayerState
