@@ -150,10 +150,14 @@ precomputed states; it never loads original assets, saves, PlayerState,
 network resources or native hooks. The page is generated from Python
 stdout and can be opened as a local HTML file without a server.
 `test_qol_visual_preview.py` validates deterministic helper-backed
-output and `test_qol_visual_preview.cjs` drives actual embedded JS
-handlers through an isolated DOM stand-in. See
-`docs/OFFLINE_VISUAL_QOL.md`. These are **not** actual game UI,
-live browser-device verification or gameplay changes.
+output, `test_qol_visual_preview.cjs` drives embedded JS handlers in
+an isolated DOM stand-in, and `test_qol_visual_browser.cjs`
+independently smoke-tests the generated fictional `file://` page
+in real headless Chromium when installed. CI run `44389947210`
+recorded **BROWSER PASS**, including interaction, session reset,
+320px viewport, no external page HTTP requests or JS exceptions.
+See `docs/OFFLINE_VISUAL_QOL.md`. This is not native Android,
+real-game UI or gameplay acceptance.
 
 ## Implementation gates
 
@@ -167,10 +171,10 @@ live browser-device verification or gameplay changes.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next useful independent step: verify the offline visual page
-in an actual browser using safe, fictional data, while preserving its
-strict no-network/no-storage behavior; then separately investigate a
-read-only native-client UI entry lifecycle only with explicit
+Next native integration gate: independently verify a safe,
+nonmutating Android-client UI lifecycle only with separate
 authorization. The title New Game menu can modify saves and the
 Home menu relies on Frida/Cocos hooks, so neither is touched here.
 Repeat-stop, payouts, Auto Battle and native integration stay on HOLD.
+Optional further offline work: improve keyboard/touch accessibility
+and independent browser coverage without using private game data.
