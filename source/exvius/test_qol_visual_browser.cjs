@@ -107,7 +107,7 @@ async function run() {
       '--no-default-browser-check', '--disable-features=MediaRouter,Translate',
       '--remote-debugging-port=0', '--user-data-dir='+profile,
       'about:blank'
-    ], {stdio:['ignore','ignore','pipe']});
+    ], {stdio:['ignore','ignore','pipe'], detached:process.platform !== 'win32'});
     let stderr = '';
     browser.stderr.on('data', chunk => { stderr += chunk.toString().slice(0,1024); });
     const portFile = path.join(profile, 'DevToolsActivePort');
@@ -227,25 +227,28 @@ async function run() {
     pending.clear();
     if (socket) socket.close();
     if (browser) {
-      if (browser.exitCode === null && browser.signalCode === null) {
-        browser.kill('SIGTERM');
-        await Promise.race([
-          new Promise(resolve => browser.once('exit', resolve)),
-          delay(1200)
-        ]);
-      }
-      if (browser.exitCode === null && browser.signalCode === null) {
-        browser.kill('SIGKILL');
-        await Promise.race([
-          new Promise(resolve => browser.once('exit', resolve)),
-          delay(1200)
-        ]);
-      }
+      // Chrome spawns background workers that can continue writing profile
+      // files after its parent exits. On Linux, give this TEST browser an
+      // isolated process group and stop the whole group on teardown.
+      const stop = signal => {
+        try {
+          if (process.platform !== 'win32' && browser.pid) {
+            process.kill(-browser.pid, signal);
+          } else {
+            browser.kill(signal);
+          }
+        } catch (error) {
+          if (error.code !== 'ESRCH') throw error;
+        }
+      };
+      stop('SIGTERM');
+      await delay(450);
+      stop('SIGKILL');
+      await delay(250);
     }
-    // Chromium helpers may still be releasing profile files after its
-    // parent exits. Retry the temporary-file cleanup rather than turning
-    // an otherwise passing browser acceptance test into ENOTEMPTY.
-    fs.rmSync(scratch,{recursive:true,force:true,maxRetries:12,retryDelay:200});
+    // The runner may still be closing handles; bounded retries ensure
+    // temporary profile removal without touching game/user files.
+    fs.rmSync(scratch,{recursive:true,force:true,maxRetries:20,retryDelay:200});
   }
 }
 
