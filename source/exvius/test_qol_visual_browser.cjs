@@ -192,6 +192,10 @@ async function run() {
     await key('Enter','Enter',13); // bookmark removed, target disappears
     assert.equal(await evaluate('document.activeElement.id'),'quest-only');
     assert.equal(await evaluate('document.getElementById("quest-summary").textContent'),'0 visible · 0 bookmarked');
+    // Changing a filter is NOT a bookmark action; keyboard focus stays
+    // on that select instead of jumping to another checkbox.
+    await evaluate('document.getElementById("quest-mode").focus();document.getElementById("quest-mode").value="1";document.getElementById("quest-mode").dispatchEvent(new Event("change"));');
+    assert.equal(await evaluate('document.activeElement.id'),'quest-mode');
     await send('Page.reload', {ignoreCache:true});
     await until(async () => await evaluate('document.readyState === "complete" && document.querySelectorAll("#roster-items .item").length === 4'), 'Page did not recover after reload');
     await evaluate('document.querySelector("[data-tab=quests]").click()');
