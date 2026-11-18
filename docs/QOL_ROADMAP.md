@@ -32,11 +32,17 @@ authorized runtime.
    automatic active-deck switching. **No native UI or live save writes.**
    Applying/saving presets remains blocked pending separate UI,
    ownership, and save-compatibility evidence.
-3. **Bulk unit management — preview only**:
-   `ffbe_player.py::serve_unit_mix` already validates base/donor
-   uniqueness and uses a durable hash receipt. Safe next scope:
-   simulate and review candidate sets, preserving all actual fusion,
-   sell, favorite, storage, spending and rollback logic unchanged.
+3. **Bulk unit management — source-only preview IMPLEMENTED**:
+   `source/server/bulk_fusion_preview.py` mirrors the structural
+   selection guards in `ffbe_player.py::serve_unit_mix`:
+   owned instance IDs, nonempty material lists, duplicate bases,
+   duplicate/reused donors, and base-as-donor conflicts. It returns
+   detached operation summaries and **always executable=False**.
+   `test_bulk_fusion_preview.py` uses synthetic units and verifies
+   no roster, party, inventory, currency, receipt, dirty flag, or
+   gameplay mutation. No actual fusion, EXP/trust estimation, native
+   request, or full eligibility decision is implemented. Runtime
+   fusion also requires more player-state, reward, and native checks.
 4. **Quest favorites**: separate local, ephemeral list of confirmed
    mission IDs; never mark mission completion or modify progress.
    Existing mission IDs appear in `exvius_actions_modes.py` and
@@ -106,7 +112,8 @@ authorized runtime.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next safely independent QoL feature after the unit and party view helpers:
-a standalone **bulk fusion/material selection preview** using only
-synthetic roster data and the existing validated server fusion input
-rules. Do not perform fusion or modify inventory in that preview.
+Next safely independent QoL feature after roster sorting, party
+preview and bulk fusion preview: **quest favorites**, initially a
+pure, ephemeral mission-ID bookmark view with no save write, mission
+completion or native navigation. Keep repeat-stop and native battle
+controls on HOLD.
