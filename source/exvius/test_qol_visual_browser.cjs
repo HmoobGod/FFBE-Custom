@@ -82,14 +82,20 @@ async function run() {
   // Send real keyboard events through Chromium rather than dispatching a
   // synthetic DOM keydown. This tests button activation and focus lifecycle.
   async function key(key, code, virtualKey) {
+    // CDP's rawKeyDown+char sequence is necessary for Chromium's
+    // native button Enter activation (keyDown alone need not click).
+    const printable = key === 'Enter' || key === ' ';
+    const options = {key, code, windowsVirtualKeyCode:virtualKey,
+                     nativeVirtualKeyCode:virtualKey};
     await send('Input.dispatchKeyEvent', {
-      type:'keyDown', key, code, windowsVirtualKeyCode:virtualKey,
-      nativeVirtualKeyCode:virtualKey
+      ...options, type:printable ? 'rawKeyDown' : 'keyDown'
     });
-    await send('Input.dispatchKeyEvent', {
-      type:'keyUp', key, code, windowsVirtualKeyCode:virtualKey,
-      nativeVirtualKeyCode:virtualKey
-    });
+    if (printable) {
+      await send('Input.dispatchKeyEvent', {
+        ...options, type:'char', text:key === 'Enter' ? '\\r' : ' '
+      });
+    }
+    await send('Input.dispatchKeyEvent', {...options, type:'keyUp'});
   }
 
   try {
