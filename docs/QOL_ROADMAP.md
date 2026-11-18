@@ -139,6 +139,22 @@ directory to prove output and rejection paths. It does **not** provide
 an in-game menu or claim Android gameplay acceptance.
 See `docs/READ_ONLY_QOL_CLI.md`.
 
+## Standalone offline visual QoL interface — IMPLEMENTED
+
+`source/exvius/qol_visual_preview.py` creates an offline,
+self-contained HTML page using **precomputed output from existing pure
+roster, party and quest-favorites helper functions**. It supplies a
+fictional interactive sample roster, existing-deck comparisons and
+ephemeral star bookmarks. The browser selects among source-backed
+precomputed states; it never loads original assets, saves, PlayerState,
+network resources or native hooks. The page is generated from Python
+stdout and can be opened as a local HTML file without a server.
+`test_qol_visual_preview.py` validates deterministic helper-backed
+output and `test_qol_visual_preview.cjs` drives actual embedded JS
+handlers through an isolated DOM stand-in. See
+`docs/OFFLINE_VISUAL_QOL.md`. These are **not** actual game UI,
+live browser-device verification or gameplay changes.
+
 ## Implementation gates
 
 - Public repo stays PUBLIC. Keep original authorship and `upstream-source`
@@ -151,10 +167,10 @@ See `docs/READ_ONLY_QOL_CLI.md`.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next genuine integration gate: verify a safe read-only
-Android/native QoL entry point independently before any actual in-game
-UI or hook implementation. The existing title menu can create a new
-save, and the Home menu uses native Frida/Cocos code; this new
-standalone CLI does not modify either. No actual credit, drop
-rolls, repeat automation or native hooks are authorized.
-Keep repeat-stop and native battle controls on HOLD.
+Next useful independent step: verify the offline visual page
+in an actual browser using safe, fictional data, while preserving its
+strict no-network/no-storage behavior; then separately investigate a
+read-only native-client UI entry lifecycle only with explicit
+authorization. The title New Game menu can modify saves and the
+Home menu relies on Frida/Cocos hooks, so neither is touched here.
+Repeat-stop, payouts, Auto Battle and native integration stay on HOLD.
