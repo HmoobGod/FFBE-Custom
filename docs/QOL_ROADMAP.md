@@ -126,6 +126,19 @@ authorized runtime.
     false; **do not infer defeat from stored False**. Therefore this
     remains the last/highest-risk gameplay automation item.
 
+## Shared read-only QoL interface — standalone CLI IMPLEMENTED
+
+`source/exvius/qol_preview_cli.py` exposes **existing**, independent
+read-only roster sorting, party preset comparison, temporary quest favorites,
+and completed challenge receipt summaries through a human-readable command
+line. It reads only caller-supplied JSON on stdin and writes only text/JSON
+to stdout. No server runtime, native hooks, PlayerState, file paths,
+game saves, account network, inventory mutation or result-screen code.
+`test_qol_preview_cli.py` runs subprocess tests in an isolated empty
+directory to prove output and rejection paths. It does **not** provide
+an in-game menu or claim Android gameplay acceptance.
+See `docs/READ_ONLY_QOL_CLI.md`.
+
 ## Implementation gates
 
 - Public repo stays PUBLIC. Keep original authorship and `upstream-source`
@@ -138,9 +151,10 @@ authorized runtime.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next development gate: prioritize a verifiable **read-only QoL
-user-interface seam** for existing source-only previews, without
-assuming the original Android/native client has safe integration.
-No actual credit, drop rolls, repeat automation, or native hooks.
-Keep repeat-stop and native battle controls on HOLD until
-authoritative runtime evidence and separate approval exist.
+Next genuine integration gate: verify a safe read-only
+Android/native QoL entry point independently before any actual in-game
+UI or hook implementation. The existing title menu can create a new
+save, and the Home menu uses native Frida/Cocos code; this new
+standalone CLI does not modify either. No actual credit, drop
+rolls, repeat automation or native hooks are authorized.
+Keep repeat-stop and native battle controls on HOLD.
