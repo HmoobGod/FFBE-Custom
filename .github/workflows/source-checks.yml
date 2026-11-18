@@ -71,5 +71,16 @@ jobs:
             echo "Bootstrap branch: original JS tests unavailable"
           fi
 
+      - name: Run synthetic repeat-reward and save-reload Python tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f source/exvius/tests/test_repeat.py && -f source/exvius/tests/test_upstream_repeat.py ]]; then
+            python -m unittest discover -s source/exvius/tests -p 'test_repeat.py' -v
+            python -m unittest discover -s source/exvius/tests -p 'test_upstream_repeat.py' -v
+          else
+            echo "Bootstrap branch: original source-only Python fixtures unavailable"
+          fi
+
       - name: No APK builds or distributable artifacts
         run: echo "Safe syntax and source-only regression checks completed; no APK build or release attempted."
