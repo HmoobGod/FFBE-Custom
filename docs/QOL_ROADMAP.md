@@ -156,6 +156,9 @@ independently smoke-tests the generated fictional `file://` page
 in real headless Chromium when installed. CI run `44389947210`
 recorded **BROWSER PASS**, including interaction, session reset,
 320px viewport, no external page HTTP requests or JS exceptions.
+The follow-up browser checks cover roving tab focus with Arrow/Home/End,
+keyboard quest-star activation with focus restoration, 44px touch
+surfaces and no horizontal overflow at 320/393/768 CSS pixels.
 See `docs/OFFLINE_VISUAL_QOL.md`. This is not native Android,
 real-game UI or gameplay acceptance.
 
@@ -176,5 +179,6 @@ nonmutating Android-client UI lifecycle only with separate
 authorization. The title New Game menu can modify saves and the
 Home menu relies on Frida/Cocos hooks, so neither is touched here.
 Repeat-stop, payouts, Auto Battle and native integration stay on HOLD.
-Optional further offline work: improve keyboard/touch accessibility
-and independent browser coverage without using private game data.
+Optional further offline work: screen-reader review and independent
+mobile-browser coverage without using private game data. Current
+keyboard/touch accessibility uses a standalone local HTML page only.
