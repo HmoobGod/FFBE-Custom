@@ -112,8 +112,8 @@ native execution, emulator, private game files, or runtime instrumentation**:
 - `MissionEndRequest::createBody` and `JsonNode::addParam<int>`
   are only used to append the repeat-run marker to the request. They
   are **not** a success/failure signal.
-- The first-party source documents a client-reported `BattleClear` field
-  at `2urzfX6d[0].69ieJGhD` in
+- The first-party source documents a client-reported **per-wave battle-clear log**
+  (not a boolean mission outcome) at `2urzfX6d[0].69ieJGhD` in
   `source/server/ffbe_state.py`. The endpoint documentation
   `source/docs/reference/tbmonkey_api_calls/validated_endpoints.md`
   maps `MissionEndRequest` to `MissionResultResponse`.
@@ -154,3 +154,70 @@ receipt have settled, and (3) the original repeat-stop call is safe at
 that exact boundary without affecting manual play. Until then, do not
 wire the source-only decision or guard to `android_test.js` or
 `mission_repeat.js`. The original default remains untouched.
+
+
+## Additional verified source evidence: wave log, settlement and attempt identity
+
+Inspection of the pinned, public `source/server/ffbe_config.py`,
+`source/server/exvius_actions_modes.py`, and
+`source/server/exvius_repeat.py` found a concrete false-positive risk:
+
+1. **`BattleClear` is NOT a victory boolean.** The official field name
+   `BATTLE_CLEAR_TOKEN = "69ieJGhD"` is documented in
+   `ffbe_config.py` as **per-wave `waveNum:battleGroupID:playerTurnCnt`**.
+   `exvius_actions_modes.py::_challenges` reads it as a comma-separated
+   collection of battle-clear records, rejects an *empty* log for its
+   particular mode, and separately obtains `ctx = mission_result_from(...)`.
+   Therefore the presence/nonemptiness of this field is **not** by itself
+   proof of a completed full-mission win. The earlier section's plain
+   "BattleClear field" wording must not be read as a win flag.
+2. **Server completion records are not a client receipt.** In
+   `exvius_repeat.py::complete_attempt`, completion is accepted when the
+   stored attempt has matching `mid` and status `pending`. The server
+   sets `attempt['status'] = 'completed'` after the normal reward
+   transaction, but there is no verified mechanism in the imported
+   client hook to see that committed server-side state. Its existing
+   `MissionResultResponse` constructor hook cannot stand in for it.
+3. **Unknown can collapse into false in server storage.** The server
+   persists `attempt['cleared'] = (cleared is True)`, even when the
+   supplied clear result is `None`. So reading `False` in the
+   stored receipt is not sufficient to prove a genuine **defeat**.
+4. **Client and server run counters are not identity-bound.**
+   `mission_repeat.js` counts constructor events within a local
+   repeat sequence. Separately, `exvius_repeat.py::begin_attempt`
+   increases the server's stored `sequence` after a new load.
+   `complete_attempt` has no request-bound sequence parameter
+   or client nonce. A same-mission late completion could therefore
+   match a newer pending attempt; **this is a synthetic API
+   limitation, not a claimed observed network replay or exploit**.
+   The client's `exvRepeatRun` marker is intended for cumulative
+   reward deconvolution, not proven as an authenticated attempt ID.
+5. **No safe stop invoker is established.** The existing native hook
+   observes `onRepeatEnd`, `onRepeatInterrupt`, `reset`, and
+   `onResetApp` on entry, but contains no source-backed permission,
+   calling convention, or verified ordering for **invoking** any of
+   them to abort future repeats. The relevant original client code
+   and any real completed-result ordering have not been executed or
+   independently verified in this source-only review.
+
+### New narrow regression fixtures
+
+`source/exvius/tests/test_repeat.py` now includes two new
+**synthetic** contract tests (no game or player files, no payout
+changes in production):
+
+- `test_unknown_result_closes_attempt_but_is_not_proven_defeat`
+  establishes that unknown completion becomes stored `False`, with
+  no rewards credited.
+- `test_new_same_mission_load_has_no_request_sequence_binding`
+  demonstrates the current same-mission pending-load **identity gap**
+  with a deliberately modeled old clear report submitted during a
+  new load. This does **not** prove real clients issue such delayed
+  requests; it identifies a gate a later stop adapter must close.
+
+These tests **do not** fix the protocol or establish runtime validity.
+They prevent future repeat-stop integration from accidentally relying
+on false evidence. Before actual wiring, require a verified, uniquely
+bound mission attempt and completed authoritative outcome/settlement
+on the client side, plus proven post-result safe stop semantics. Keep
+both QoL options disabled until then.
