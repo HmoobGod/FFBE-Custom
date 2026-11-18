@@ -21,6 +21,12 @@ class Player:
             key=f"{r['kind']}:{r['id']}"
             self.data['wallet'][key]=self.data['wallet'].get(key,0)+r['count']
         return copy.deepcopy(rows)
+    def record_archive(self, counters):
+        # Synthetic fixture parity with PlayerState: a successful mission clear
+        # records an archive counter. Do not import game data or mutate live saves.
+        for name, count in counters.items():
+            self.data.setdefault('archive', {})[name] = (
+                self.data.setdefault('archive', {}).get(name, 0) + int(count))
 
 ROWS=[{'id':'c1','condition':'clear:','rewards':'50:1:20,30:1:50,20:101:2'},
       {'id':'c2','condition':'optional:','rewards':'50:1:10'}]
