@@ -77,9 +77,20 @@ recorded challenge-receipt summaries, also with caller-supplied data.
   party selection, quest star toggling, favorites first/only,
   mode/dungeon filtering, visible/hidden panels and reset on a new
   page instance. It rejects network/native/persistence functions.
-- GitHub Actions executes both tests in the source-only job. These
-  are **synthetic interaction tests**, not native game or device
-  acceptance and not equivalent to a full browser compatibility run.
+- `source/exvius/test_qol_visual_browser.cjs` launches installed
+  Chrome/Chromium in headless mode with the exact locally generated
+  fictional `file://` page. The test uses loopback Chrome DevTools
+  Protocol **only as the test harness**. It verifies real DOM
+  rendering, roster sorting, warehouse filtering, party comparison,
+  quest stars, bookmark reset on reload, 320px responsive width,
+  no browser JavaScript exceptions, and no external page HTTP requests.
+  The test clearly outputs SKIP if no browser is installed; a green
+  CI alone is not evidence of a real-browser pass.
+- GitHub Actions executes the Python, simulated-DOM, and optional
+  real-Chromium tests in the source-only job. The 2026-11-18 run
+  `44389947210` printed **BROWSER PASS** for headless Chromium.
+  These are offline HTML/browser acceptance checks, **not** native
+  Android game or device acceptance.
 
 ## Remaining boundaries
 
