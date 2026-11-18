@@ -164,5 +164,16 @@ jobs:
             echo "Bootstrap branch: optional QoL CLI unavailable"
           fi
 
+      - name: Validate offline visual QoL page and interactive controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f source/exvius/qol_visual_preview.py ]]; then
+            python -m unittest discover -s source/exvius/tests -p 'test_qol_visual_preview.py' -v
+            node source/exvius/test_qol_visual_preview.cjs
+          else
+            echo "Bootstrap branch: optional offline visual QoL page unavailable"
+          fi
+
       - name: No APK builds or distributable artifacts
         run: echo "Safe syntax and source-only regression checks completed; no APK build or release attempted."
