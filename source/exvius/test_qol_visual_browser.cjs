@@ -79,6 +79,19 @@ async function run() {
     return data.result.value;
   }
 
+  // Send real keyboard events through Chromium rather than dispatching a
+  // synthetic DOM keydown. This tests button activation and focus lifecycle.
+  async function key(key, code, virtualKey) {
+    await send('Input.dispatchKeyEvent', {
+      type:'keyDown', key, code, windowsVirtualKeyCode:virtualKey,
+      nativeVirtualKeyCode:virtualKey
+    });
+    await send('Input.dispatchKeyEvent', {
+      type:'keyUp', key, code, windowsVirtualKeyCode:virtualKey,
+      nativeVirtualKeyCode:virtualKey
+    });
+  }
+
   try {
     browser = spawn(binary, [
       '--headless=new', '--no-sandbox', '--disable-gpu',
@@ -132,6 +145,22 @@ async function run() {
     const unitIds = 'Array.from(document.querySelectorAll("#roster-items .item strong"),n=>n.textContent)';
     const questIds = 'Array.from(document.querySelectorAll("#quest-items .item strong"),n=>n.textContent)';
     assert.deepEqual(await evaluate(unitIds),['Unit 101','Unit 102','Unit 103','Unit 104']);
+    assert.deepEqual(await evaluate('Array.from(document.querySelectorAll("[role=tab]"), e=>[e.id,e.getAttribute("tabindex"),e.getAttribute("aria-controls")])'), [
+      ['tab-roster','0','panel-roster'],['tab-party','-1','panel-party'],['tab-quests','-1','panel-quests']
+    ]);
+    assert.equal(await evaluate('document.getElementById("panel-roster").getAttribute("aria-labelledby")'),'tab-roster');
+    await evaluate('document.getElementById("tab-roster").focus()');
+    await key('ArrowRight','ArrowRight',39);
+    assert.equal(await evaluate('document.activeElement.id'),'tab-party');
+    assert.equal(await evaluate('document.getElementById("panel-party").hidden'),false);
+    assert.equal(await evaluate('document.getElementById("tab-party").getAttribute("tabindex")'),'0');
+    assert.equal(await evaluate('document.getElementById("tab-roster").getAttribute("tabindex")'),'-1');
+    await key('End','End',35);
+    assert.equal(await evaluate('document.activeElement.id'),'tab-quests');
+    await key('Home','Home',36);
+    assert.equal(await evaluate('document.activeElement.id'),'tab-roster');
+    await key('ArrowLeft','ArrowLeft',37);
+    assert.equal(await evaluate('document.activeElement.id'),'tab-quests');
     await evaluate('document.getElementById("roster-sort").value="level_desc";document.getElementById("roster-sort").dispatchEvent(new Event("change"));');
     assert.deepEqual(await evaluate(unitIds),['Unit 102','Unit 104','Unit 103','Unit 101']);
     await evaluate('document.getElementById("roster-storage").value="warehouse";document.getElementById("roster-storage").dispatchEvent(new Event("change"));');
@@ -143,23 +172,46 @@ async function run() {
     assert.equal(await evaluate('document.getElementById("party-summary").textContent.includes("Active deck 0")'),true);
     await evaluate('document.querySelector("[data-tab=quests]").click()');
     assert.deepEqual(await evaluate(questIds),['Mission 1110100','Mission 1110101','Mission 8991106']);
-    await evaluate('document.querySelector("#quest-items .star").click()');
+    // Keyboard Enter should toggle the star and restore focus to the
+    // replacement button after the virtual list is regenerated.
+    await evaluate('document.querySelector("#quest-items .star").focus()');
+    await key('Enter','Enter',13);
     assert.equal(await evaluate('document.getElementById("quest-summary").textContent.includes("1 bookmarked")'),true);
+    assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")'),'Toggle temporary bookmark for mission 1110100');
+    assert.equal(await evaluate('document.activeElement.getAttribute("aria-pressed")'),'true');
     await evaluate('document.getElementById("quest-first").checked=true;document.getElementById("quest-first").dispatchEvent(new Event("change"));');
     assert.equal(await evaluate('document.querySelector("#quest-items .star").getAttribute("aria-pressed")'), 'true');
+    await evaluate('document.getElementById("quest-only").checked=true;document.getElementById("quest-only").dispatchEvent(new Event("change"));');
+    await evaluate('document.querySelector("#quest-items .star").focus()');
+    await key('Enter','Enter',13); // bookmark removed, target disappears
+    assert.equal(await evaluate('document.activeElement.id'),'quest-only');
+    assert.equal(await evaluate('document.getElementById("quest-summary").textContent'),'0 visible · 0 bookmarked');
     await send('Page.reload', {ignoreCache:true});
     await until(async () => await evaluate('document.readyState === "complete" && document.querySelectorAll("#roster-items .item").length === 4'), 'Page did not recover after reload');
     await evaluate('document.querySelector("[data-tab=quests]").click()');
     assert.equal(await evaluate('document.getElementById("quest-summary").textContent.includes("0 bookmarked")'),true);
     assert.equal(await evaluate('document.getElementById("qol-fixtures").textContent.includes("fictional_samples_only")'),true);
 
-    // Visual usability check at 320x740 responsive viewport.
-    await send('Emulation.setDeviceMetricsOverride', {width:320,height:740,
-      deviceScaleFactor:1,mobile:true});
-    assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'),true);
+    // Touch target and horizontal-scroll acceptance at actual responsive widths.
+    for (const width of [320,393,768]) {
+      await send('Emulation.setDeviceMetricsOverride', {
+        width,height:740,deviceScaleFactor:1,mobile:true
+      });
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'),
+        true, 'Horizontal overflow at '+width+'px');
+      const targets = await evaluate(`Array.from(document.querySelectorAll(
+        '.tab, select, .check, .star')).filter(el=>el.getClientRects().length)
+        .map(el=>({name:el.id||el.className,w:el.getBoundingClientRect().width,
+          h:el.getBoundingClientRect().height}))`);
+      assert.ok(targets.length >= 7, 'Missing interactive targets at '+width+'px');
+      for (const target of targets) {
+        assert.ok(target.w >= 44 && target.h >= 44,
+          'Too-small touch target at '+width+'px: '+JSON.stringify(target));
+      }
+    }
     assert.deepEqual(externalRequests, [], 'Offline HTML attempted external HTTP request');
     assert.deepEqual(errors, [], 'Browser threw JavaScript runtime errors');
-    console.log('BROWSER PASS: Chromium file:// local page; roster sorting, party preview, quest bookmarking, reload reset, 320px viewport, no external requests or runtime exceptions.');
+    console.log('BROWSER PASS: Chromium file:// local page; keyboard roving tabs, focus-retained quest bookmark, 320/393/768px touch targets, no page network requests, no storage and no runtime exceptions.');
   } finally {
     for (const job of pending.values()) {clearTimeout(job.timer);job.reject(new Error('Browser cleanup')); }
     pending.clear();
