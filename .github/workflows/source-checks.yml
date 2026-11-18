@@ -59,5 +59,17 @@ jobs:
             echo "Bootstrap branch: no upstream source imported"
           fi
 
+      - name: Run isolated original source-only JavaScript regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f source/exvius/test_mission_repeat.js ]]; then
+            node source/exvius/test_mission_repeat.js
+            node source/exvius/test_home_carousel.js
+            node source/exvius/test_android_display.js
+          else
+            echo "Bootstrap branch: original JS tests unavailable"
+          fi
+
       - name: No APK builds or distributable artifacts
-        run: echo "Static source-only validation completed; no APK build or release attempted."
+        run: echo "Safe syntax and source-only regression checks completed; no APK build or release attempted."
