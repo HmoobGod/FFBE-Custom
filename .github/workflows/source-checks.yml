@@ -94,5 +94,15 @@ jobs:
             echo "Bootstrap branch: optional unit roster prototype unavailable"
           fi
 
+      - name: Verify read-only party preset preview with synthetic decks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f source/exvius/tests/test_party_preset_preview.py ]]; then
+            python -m unittest discover -s source/exvius/tests -p 'test_party_preset_preview.py' -v
+          else
+            echo "Bootstrap branch: optional party preset preview unavailable"
+          fi
+
       - name: No APK builds or distributable artifacts
         run: echo "Safe syntax and source-only regression checks completed; no APK build or release attempted."
