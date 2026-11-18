@@ -154,5 +154,15 @@ jobs:
             echo "Bootstrap branch: optional drop-rate preview unavailable"
           fi
 
+      - name: Exercise standalone read-only QoL CLI with synthetic stdin
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f source/exvius/tests/test_qol_preview_cli.py ]]; then
+            python -m unittest discover -s source/exvius/tests -p 'test_qol_preview_cli.py' -v
+          else
+            echo "Bootstrap branch: optional QoL CLI unavailable"
+          fi
+
       - name: No APK builds or distributable artifacts
         run: echo "Safe syntax and source-only regression checks completed; no APK build or release attempted."
