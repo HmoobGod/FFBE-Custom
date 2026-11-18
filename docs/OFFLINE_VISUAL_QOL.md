@@ -64,6 +64,26 @@ drop-rate previews, real reward payout records, or automated battle
 controls. The prior standalone read-only CLI remains available for
 recorded challenge-receipt summaries, also with caller-supplied data.
 
+## Keyboard and touch accessibility
+
+- The Unit roster, Party comparison, and Quest favorites tabs use
+  linked `role=tab` / `role=tabpanel` elements, `aria-controls`,
+  `aria-labelledby`, one active `tabindex=0` and inactive
+  `tabindex=-1`. Left/Right arrows wrap through tabs; Home/End
+  select the first/last tab; focus follows the selected tab.
+- Keyboard Enter and standard native button activation toggle
+  temporary quest bookmarks. After the card list is reconstructed,
+  keyboard focus returns to the replacement bookmark button.
+  When Favorites-only removes the last visible unstarred card,
+  focus moves to the Favorites-only filter instead of disappearing.
+- CSS uses a minimum 44×44px touch surface for tabs and bookmark
+  buttons, and minimum 44px height for dropdowns and checkbox labels.
+  Responsive controls are tested for horizontal overflow at 320,
+  393, and 768 CSS pixels.
+- The browser test confirms these specific observable behaviors;
+  this is **not** a WCAG conformance certification or a claim of
+  testing a real mobile touchscreen or screen reader.
+
 ## Testing
 
 - `source/exvius/tests/test_qol_visual_preview.py` verifies the
@@ -81,8 +101,10 @@ recorded challenge-receipt summaries, also with caller-supplied data.
   Chrome/Chromium in headless mode with the exact locally generated
   fictional `file://` page. The test uses loopback Chrome DevTools
   Protocol **only as the test harness**. It verifies real DOM
-  rendering, roster sorting, warehouse filtering, party comparison,
-  quest stars, bookmark reset on reload, 320px responsive width,
+  rendering, keyboard tab navigation (Arrow keys, Home, End),
+  keyboard-activated quest star toggles with retained focus, active
+  tab ARIA state, mobile touch-target sizing and zero horizontal
+  overflow at 320/393/768 CSS pixels, bookmark reset on reload,
   no browser JavaScript exceptions, and no external page HTTP requests.
   The test clearly outputs SKIP if no browser is installed; a green
   CI alone is not evidence of a real-browser pass.
