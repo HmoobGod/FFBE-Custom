@@ -58,7 +58,7 @@ python "$WORKSPACE/scripts/check_public_tree.py" --repo "$WORKSPACE" --history -
 python -m compileall -q "$WORKSPACE/source"
 while IFS= read -r -d '' file; do
   node --check "$file"
-done < <(find "$WORKSPACE/source" -type f \\( -name '*.js' -o -name '*.cjs' \\) -print0)
+done < <(find "$WORKSPACE/source" -type f \( -name '*.js' -o -name '*.cjs' \) -print0)
 echo "PASS: source-only Python and JavaScript syntax checks"
 
 echo "Filtered upstream commit: $(git -C "$WORKSPACE" rev-parse upstream-source)"
