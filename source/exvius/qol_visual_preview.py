@@ -237,7 +237,8 @@ footer{padding-top:24px;color:#849cb8;font-size:.82rem}button:focus-visible,sele
   });
   for(const id of ["roster-sort","roster-storage","roster-favorites"]) get(id).addEventListener("change",renderRoster);
   get("party-preset").addEventListener("change",renderParty);
-  for(const id of ["quest-mode","quest-dungeon","quest-first","quest-only"]) get(id).addEventListener("change",renderQuests);
+  // A change event is not a bookmark ID. Keep focus on the user's filter.
+  for(const id of ["quest-mode","quest-dungeon","quest-first","quest-only"]) get(id).addEventListener("change", () => renderQuests());
   activate("roster");
 })();
 </script></main></body></html>
