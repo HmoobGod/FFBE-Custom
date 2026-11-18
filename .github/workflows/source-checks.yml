@@ -171,6 +171,7 @@ jobs:
           if [[ -f source/exvius/qol_visual_preview.py ]]; then
             python -m unittest discover -s source/exvius/tests -p 'test_qol_visual_preview.py' -v
             node source/exvius/test_qol_visual_preview.cjs
+            node source/exvius/test_qol_visual_browser.cjs
           else
             echo "Bootstrap branch: optional offline visual QoL page unavailable"
           fi
