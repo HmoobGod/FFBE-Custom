@@ -54,12 +54,19 @@ authorized runtime.
    progress, rewards, save and dirty flags. No runtime table loading,
    persistence, native navigation, quest unlocking or game UI
    is implemented. See `docs/QUEST_FAVORITES_VIEW.md`.
-5. **Better reward summaries**: read-only formatting/aggregation of
-   **verified** per-attempt credit receipts. Existing ledger:
-   `exvius_repeat.py::complete_attempt`, `claim_mission_rewards`,
-   `repeat_challenge_rewards`. It records challenge rewards
-   separately from normal drops. Cannot yet claim a complete
-   multi-run payout report from client constructor counts.
+5. **Better reward summaries — source-only preview IMPLEMENTED**:
+   `source/server/reward_receipt_summary.py` takes caller-supplied
+   committed copies of `exvius_repeat.attempt` and totals only the
+   recorded `paid` challenge reward rows by original `kind:id`,
+   preserving mission separation. It ignores repeat receipt copies
+   of the same local sequence, rejects conflicting duplicates, lists
+   withheld-entry counts without paying them, and skips pending,
+   incomplete, or unknown-result receipts. `test_reward_receipt_summary.py`
+   exercises both original-shaped receipt aggregation and unchanged
+   wallet, inventory, progress and saves. No native results UI, client
+   counter, runtime request, receipt archive, normal-drop reporting,
+   reward credit, or save changes exist. See
+   `docs/REWARD_RECEIPT_SUMMARY.md`.
 
 ## Develop after receipt and eligible-source rules are verified
 
@@ -118,8 +125,9 @@ authorized runtime.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next independent source-only QoL candidate: **better reward
-summaries**, limited to a detached view of independently verified
-settled receipt fields. No client constructor counters, reward
-generation or repeat-stop integration. Keep repeat-stop and native
-battle controls on HOLD.
+Next source-only research target: **adjustable EXP/gil eligibility
+boundaries**, beginning with a review and pure default-1x
+configuration design only. Do not scale payouts, spending,
+persisted counters, completed receipts or actual gameplay without
+verified source-specific credit paths and separate authorization.
+Keep repeat-stop and native battle controls on HOLD.
