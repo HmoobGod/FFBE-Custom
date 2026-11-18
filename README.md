@@ -4,7 +4,7 @@ Independent public development repository for optional quality-of-life improveme
 
 ## Origin and attribution
 
-This project is based on the offline adaptation by [Elvlin](https://github.com/Elvlin/exvius-offline)
+This project is based on the offline adaptation by Elvlin (https://github.com/Elvlin/exvius-offline)
 
 - Source checkpoint: [`b520e563cbc4364a07ee40331012340dc8aeb841`](https://github.com/Elvlin/exvius-offline/commit/b520e563cbc4364a07ee40331012340dc8aeb841).
 - `upstream-source`: source-only filtered history from that checkpoint (created by the import workflow).
