@@ -144,5 +144,15 @@ jobs:
             echo "Bootstrap branch: optional earning multiplier preview unavailable"
           fi
 
+      - name: Verify hypothetical default-1x normal-drop preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f source/exvius/tests/test_drop_rate_preview.py ]]; then
+            python -m unittest discover -s source/exvius/tests -p 'test_drop_rate_preview.py' -v
+          else
+            echo "Bootstrap branch: optional drop-rate preview unavailable"
+          fi
+
       - name: No APK builds or distributable artifacts
         run: echo "Safe syntax and source-only regression checks completed; no APK build or release attempted."
