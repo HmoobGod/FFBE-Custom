@@ -112,11 +112,11 @@ async function run() {
     browser.stderr.on('data', chunk => { stderr += chunk.toString().slice(0,1024); });
     const portFile = path.join(profile, 'DevToolsActivePort');
     const port = await until(() => {
-      if (browser.exitCode !== null) throw new Error('Chromium exited: '+stderr.slice(-500));
+      if (browser.exitCode !== null || browser.signalCode !== null) throw new Error('Chromium exited: '+stderr.slice(-500));
       if (!fs.existsSync(portFile)) return 0;
       const p = Number(fs.readFileSync(portFile,'utf8').split('\n')[0]);
       return Number.isInteger(p) && p > 0 ? p : 0;
-    }, 'Chromium CDP never started');
+    }, 'Chromium CDP never started (stderr: '+stderr.slice(-500)+')', 30000);
     const page = await until(async () => {
       const response = await fetch('http://127.0.0.1:'+port+'/json');
       const tabs = await response.json();
@@ -223,11 +223,25 @@ async function run() {
     pending.clear();
     if (socket) socket.close();
     if (browser) {
-      browser.kill('SIGTERM');
-      await delay(120);
-      if (browser.exitCode===null) browser.kill('SIGKILL');
+      if (browser.exitCode === null && browser.signalCode === null) {
+        browser.kill('SIGTERM');
+        await Promise.race([
+          new Promise(resolve => browser.once('exit', resolve)),
+          delay(1200)
+        ]);
+      }
+      if (browser.exitCode === null && browser.signalCode === null) {
+        browser.kill('SIGKILL');
+        await Promise.race([
+          new Promise(resolve => browser.once('exit', resolve)),
+          delay(1200)
+        ]);
+      }
     }
-    fs.rmSync(scratch,{recursive:true,force:true});
+    // Chromium helpers may still be releasing profile files after its
+    // parent exits. Retry the temporary-file cleanup rather than turning
+    // an otherwise passing browser acceptance test into ENOTEMPTY.
+    fs.rmSync(scratch,{recursive:true,force:true,maxRetries:12,retryDelay:200});
   }
 }
 
