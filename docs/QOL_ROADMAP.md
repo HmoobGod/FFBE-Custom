@@ -43,11 +43,17 @@ authorized runtime.
    gameplay mutation. No actual fusion, EXP/trust estimation, native
    request, or full eligibility decision is implemented. Runtime
    fusion also requires more player-state, reward, and native checks.
-4. **Quest favorites**: separate local, ephemeral list of confirmed
-   mission IDs; never mark mission completion or modify progress.
-   Existing mission IDs appear in `exvius_actions_modes.py` and
-   `F_MISSION_MST` references. UX/native navigation and durable
-   storage format are not independently verified.
+4. **Quest favorites — ephemeral source-only preview IMPLEMENTED**:
+   `source/server/quest_favorites_view.py` accepts caller-provided
+   synthetic/catalog `F_MISSION_MST.qo3PECw6` mission rows and
+   temporary bookmark IDs. It supports a detached view, stable
+   favorites-first ordering, favorites-only and source-backed mode
+   (`gQR24kST`)/dungeon (`U9iHsau3`) filters, plus an ephemeral
+   pure toggle. `test_quest_favorites_view.py` exercises invalid
+   and duplicate IDs, filters, stable order, and unchanged mission
+   progress, rewards, save and dirty flags. No runtime table loading,
+   persistence, native navigation, quest unlocking or game UI
+   is implemented. See `docs/QUEST_FAVORITES_VIEW.md`.
 5. **Better reward summaries**: read-only formatting/aggregation of
    **verified** per-attempt credit receipts. Existing ledger:
    `exvius_repeat.py::complete_attempt`, `claim_mission_rewards`,
@@ -112,8 +118,8 @@ authorized runtime.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next safely independent QoL feature after roster sorting, party
-preview and bulk fusion preview: **quest favorites**, initially a
-pure, ephemeral mission-ID bookmark view with no save write, mission
-completion or native navigation. Keep repeat-stop and native battle
-controls on HOLD.
+Next independent source-only QoL candidate: **better reward
+summaries**, limited to a detached view of independently verified
+settled receipt fields. No client constructor counters, reward
+generation or repeat-stop integration. Keep repeat-stop and native
+battle controls on HOLD.
