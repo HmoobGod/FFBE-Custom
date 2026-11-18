@@ -90,6 +90,37 @@ class Repeat(unittest.TestCase):
         p=Player(); begin_attempt(p,'m2'); finish(p)
         self.assertEqual(p.data['wallet'],{})
         self.assertEqual(p.data['exvius_repeat']['attempt']['status'],'pending')
+    def test_unknown_result_closes_attempt_but_is_not_proven_defeat(self):
+        # The stored cleared flag collapses an UNKNOWN report (None) to False.
+        # A future stop-on-failure caller must not equate that persisted False
+        # with an independently established battle defeat.
+        p=Player(); self.assertTrue(begin_attempt(p,'m1'))
+        result=finish(p,clear=None)
+        attempt=p.data['exvius_repeat']['attempt']
+        self.assertEqual(result['reason'],'completed')
+        self.assertEqual(attempt['status'],'completed')
+        self.assertIs(attempt['cleared'],False)
+        self.assertEqual(p.data['wallet'],{})
+
+    def test_new_same_mission_load_has_no_request_sequence_binding(self):
+        # This is a SYNTHETIC stale-request illustration, not a captured
+        # network replay. complete_attempt accepts mission ID + pending status,
+        # but has no caller-supplied sequence identity. A prior completion
+        # cannot be distinguished if submitted while a newer load is pending.
+        p=Player()
+        self.assertTrue(begin_attempt(p,'m1'))
+        self.assertEqual(finish(p,clear=True)['reason'],'completed')
+        self.assertEqual(p.data['exvius_repeat']['attempt']['sequence'],1)
+        self.assertEqual(p.data['wallet']['50:1'],20)
+        self.assertTrue(begin_attempt(p,'m1'))
+        self.assertEqual(p.data['exvius_repeat']['attempt']['sequence'],2)
+        # Model a late copy of the previous mission's same-ID clear report.
+        # There is no attempt number argument in the current API.
+        self.assertEqual(finish(p,clear=True)['reason'],'completed')
+        self.assertEqual(p.data['exvius_repeat']['attempt']['sequence'],2)
+        self.assertEqual(p.data['wallet']['50:1'],40)
+        self.assertEqual(finish(p,clear=True)['reason'],'no pending mission load')
+
     def test_legacy_paid_migration(self):
         p=Player(); p.data['progress']={'paid_challenges':{'m1':['c1']}}
         begin_attempt(p,'m1'); finish(p)
