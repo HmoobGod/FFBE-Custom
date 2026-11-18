@@ -83,11 +83,19 @@ authorized runtime.
    residual level-up rules and exactly-once payout integration
    need separate evidence. See
    `docs/PROGRESSION_MULTIPLIER_PREVIEW.md`.
-7. **Adjustable drop rates**: candidate drops and actual awarded drops
-   are different channels (see `ffbe_config.py` and
-   `source/docs/reference/tbmonkey_api_calls/validated_endpoints.md`).
-   Require identified legitimate random-selection point, per-result
-   idempotency and no changes to limited/one-time/paid items.
+7. **Adjustable drop rates — pure hypothetical preview IMPLEMENTED**:
+   `source/server/drop_rate_preview.py` models caller-provided original
+   `9BetM2Ds` candidate strings (`kind:id:count:rate`) with a
+   default 1x and optional 1x–5x settings, no random roll and no
+   credit. A 0–100 percentage scale and 100 cap are explicit
+   *hypothetical* model assumptions; the exact native RNG formula,
+   per-result attempt identity, and eligible drop sources remain
+   unverified. `test_drop_rate_preview.py` uses synthetic data
+   for candidate preservation, invalid/zero rates, and unchanged
+   wallet, inventory, receipts and saves. The original
+   `ROLL_DROPS` remains ON and `MIRROR_DROPS` remains OFF.
+   No original actual drop manipulation or game UI is implemented.
+   See `docs/DROP_RATE_PREVIEW.md`.
 8. **Repeat farming controls** — **pure policy already committed**:
    `repeat_stop_policy.js` and `repeat_observation_guard.js`.
    Disabled defaults; source-only tests pass. Actual opt-in gameplay
@@ -130,9 +138,9 @@ authorized runtime.
   game binaries, installations, releases, merges or schedulers.
 - CI is a *source-only* validation gate, not gameplay/device acceptance.
 
-Next source-only research candidate: **adjustable drop-rate
-eligibility and original roll boundary**; distinguish a pure
-hypothetical rate preview from a real gameplay drop modifier.
-Do not manipulate payouts, spending, cleared challenges or
-existing rewards. Keep repeat-stop and native battle controls
-on HOLD until authoritative runtime evidence exists.
+Next development gate: prioritize a verifiable **read-only QoL
+user-interface seam** for existing source-only previews, without
+assuming the original Android/native client has safe integration.
+No actual credit, drop rolls, repeat automation, or native hooks.
+Keep repeat-stop and native battle controls on HOLD until
+authoritative runtime evidence and separate approval exist.
