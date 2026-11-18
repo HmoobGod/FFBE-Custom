@@ -92,7 +92,7 @@ async function run() {
     });
     if (printable) {
       await send('Input.dispatchKeyEvent', {
-        ...options, type:'char', text:key === 'Enter' ? '\\r' : ' '
+        ...options, type:'char', text:key === 'Enter' ? '\r' : ' '
       });
     }
     await send('Input.dispatchKeyEvent', {...options, type:'keyUp'});
