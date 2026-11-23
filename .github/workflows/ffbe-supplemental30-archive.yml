@@ -1,0 +1,177 @@
+name: FFBE Pinned Supplemental 30 Source-Only Archive
+
+on:
+  push:
+    branches:
+      - ffbe-supplemental30-source-only-20261123
+    paths:
+      - .github/workflows/ffbe-supplemental30-archive.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-archive:
+    if: >-
+      github.repository == 'HmoobGod/FFBE-Custom' &&
+      github.ref == 'refs/heads/ffbe-supplemental30-source-only-20261123' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Source-only: package pinned Elvlin supplemental 30'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_READ_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify exactly thirty pinned public Python blobs and ASTs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import sys
+          import urllib.request
+          
+          COMMIT = "65da3ca6b7924774c6c22dfbe397157c4a8966c4"
+          API = "https://api.github.com/repos/Elvlin/exvius-offline"
+          NAMES = (
+              "battle_content.py",
+              "data_paths.py",
+              "event_archive.py",
+              "exvius_actions.py",
+              "exvius_actions_modes.py",
+              "exvius_actions_shops.py",
+              "exvius_challenges.py",
+              "exvius_events.py",
+              "exvius_field_treasures.py",
+              "exvius_fortuna.py",
+              "exvius_raid_progress.py",
+              "exvius_repeat.py",
+              "exvius_rewards.py",
+              "exvius_shop_catalogue.py",
+              "ffbe_banner.py",
+              "ffbe_config.py",
+              "ffbe_crypto.py",
+              "ffbe_friends.py",
+              "ffbe_gacha.py",
+              "gacha_archive.py",
+              "gacha_rates.py",
+              "offline_menu.py",
+              "player_state.py",
+              "raid_summon.py",
+              "exvius_actions_arena.py",
+              "exvius_actions_expedition.py",
+              "exvius_arena.py",
+              "exvius_colosseum.py",
+              "exvius_gacha_select.py",
+              "gacha_box.py",
+          )
+          assert len(NAMES) == 30 and len(set(NAMES)) == 30
+          assert all(re.fullmatch(r"[a-z][a-z0-9_]*\.py", n) for n in NAMES)
+          
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "FFBE-source-only-archive",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          token = os.environ.get("GH_READ_TOKEN")
+          if token:
+              headers["Authorization"] = "Bearer " + token
+          
+          def get_json(suffix):
+              req = urllib.request.Request(API + suffix, headers=headers)
+              with urllib.request.urlopen(req, timeout=35) as res:
+                  if res.status != 200:
+                      raise RuntimeError("GitHub API status " + str(res.status))
+                  return json.load(res)
+          
+          listing = get_json("/contents/source/server?ref=" + COMMIT)
+          assert isinstance(listing, list), "Pinned source tree lookup failed"
+          tree_map = {row["path"]: row for row in listing
+                      if isinstance(row, dict) and row.get("type") == "file"}
+          expected = {"source/server/" + n for n in NAMES}
+          assert expected.issubset(tree_map), "Missing file at pinned commit"
+          
+          known_local = {n[:-3] for n in NAMES} | {
+              "local_game", "capture_server", "ffbe_pipeline", "ffbe_battle",
+              "ffbe_player", "ffbe_state", "season", "android_game",
+          }
+          external = {"yaml", "cryptography"}
+          stdlib = set(sys.stdlib_module_names)
+          raw_files = {}
+          parsed = {}
+          import_map = {}
+          
+          for name in NAMES:
+              filepath = "source/server/" + name
+              info = tree_map[filepath]
+              sha = info.get("sha", "")
+              assert info.get("name") == name and info.get("path") == filepath
+              assert re.fullmatch(r"[a-f0-9]{40}", sha), "Bad Git blob identity"
+              assert isinstance(info.get("size"), int) and 0 < info["size"] <= 1000000
+              gitblob = get_json("/git/blobs/" + sha)
+              assert gitblob.get("sha") == sha and gitblob.get("encoding") == "base64"
+              raw = base64.b64decode("".join(gitblob["content"].split()), validate=True)
+              assert len(raw) == info["size"] == gitblob.get("size"), "Bad source size"
+              computed = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+              assert computed == sha, "Git identity mismatch: " + filepath
+              syntax = ast.parse(raw.decode("utf-8-sig"), filename=filepath, feature_version=(3, 10))
+              imported = set()
+              for node in ast.walk(syntax):
+                  if isinstance(node, ast.Import):
+                      imported.update(alias.name.split(".")[0] for alias in node.names)
+                  elif isinstance(node, ast.ImportFrom):
+                      assert node.level == 0, "Relative import not covered: " + filepath
+                      if node.module:
+                          imported.add(node.module.split(".")[0])
+              missing = imported - known_local - external - stdlib
+              assert not missing, "Unaccounted source imports: " + filepath + ": " + repr(sorted(missing))
+              raw_files[name] = (raw, computed)
+              parsed[name] = syntax
+              import_map[name] = sorted(imported)
+          
+          families = []
+          for node in parsed["exvius_actions.py"].body:
+              if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                  targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                  if any(isinstance(t, ast.Name) and t.id == "FAMILIES" for t in targets):
+                      families.append(ast.literal_eval(node.value))
+          assert families == [(
+              "exvius_actions_arena", "exvius_actions_expedition", "exvius_actions_modes",
+              "exvius_actions_shops", "exvius_gacha_select", "gacha_box",
+          )], "Dynamic family imports changed"
+          assert all(n in known_local for n in families[0])
+          
+          # No files are staged until all thirty SHA-1, AST and import checks succeed.
+          root = Path("stage/source/server")
+          root.mkdir(parents=True, exist_ok=False)
+          for name in NAMES:
+              (root / name).write_bytes(raw_files[name][0])
+          found = {"source/server/" + p.name for p in root.iterdir() if p.is_file()}
+          assert found == expected and len(found) == 30, "Artifact paths mismatch"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("## Pinned FFBE supplemental source-only archive\n\n")
+              out.write("Upstream commit: " + COMMIT + "\n\n")
+              out.write("Git blob identities: 30/30 PASS; AST parses: 30/30 PASS\n\n")
+              out.write("Static imports and literal dynamic families: PASS\n\n")
+              out.write("No FFBE imports, execution, APK, game data or saves.\n\n")
+              for name in NAMES:
+                  data, gitsha = raw_files[name]
+                  out.write("source/server/" + name + " | Git " + gitsha +
+                            " | SHA-256 " + hashlib.sha256(data).hexdigest() + "\n")
+          print("SOURCE_ONLY_PASS 30/30 Git blob SHA-1, AST parse, imports, paths")
+          PY
+      - name: Upload one verified source-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FFBE_Elvlin_v0.1.36_Supplemental30
+          path: stage/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
