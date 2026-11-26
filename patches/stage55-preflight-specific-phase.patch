@@ -1,0 +1,42 @@
+--- a/NativeStartupTrial.java
++++ b/NativeStartupTrial.java
+@@ -44,8 +44,10 @@
+             pm.setComponentEnabledSetting(name, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
+     }
+     private static void processIdentity(Context c) throws Exception {
++        phase = "package and UID identity";
+         if (!PACKAGE.equals(c.getPackageName()) || c.getApplicationInfo().uid != Process.myUid())
+             throw new IOException("Unexpected startup process identity");
++        phase = "main process identity";
+         byte[] bytes = new byte[256]; int n;
+         try (FileInputStream in = new FileInputStream("/proc/self/cmdline")) { n = in.read(bytes); }
+         int end = 0; while (end < n && bytes[end] != 0) end++;
+@@ -54,11 +56,18 @@
+     }
+     private static void requireOffline(Context c) throws Exception {
+         // No Internet permission in the candidate; also require explicit device isolation at launch.
++        phase = "Internet permission check";
+         if (c.checkSelfPermission("android.permission.INTERNET") == PackageManager.PERMISSION_GRANTED)
+             throw new IOException("Unexpected Internet permission");
++        phase = "connectivity service check";
+         android.net.ConnectivityManager cm = (android.net.ConnectivityManager)c.getSystemService(Context.CONNECTIVITY_SERVICE);
+-        if (android.provider.Settings.Global.getInt(c.getContentResolver(), "airplane_mode_on", 0) != 1 ||
+-            cm == null || cm.getActiveNetwork() != null)
++        phase = "airplane mode check";
++        if (android.provider.Settings.Global.getInt(c.getContentResolver(), "airplane_mode_on", 0) != 1)
++            throw new IOException("Enable airplane mode and disable Wi-Fi before startup");
++        phase = "connectivity service check";
++        if (cm == null) throw new IOException("Connectivity service unavailable");
++        phase = "active network check";
++        if (cm.getActiveNetwork() != null)
+             throw new IOException("Enable airplane mode and disable Wi-Fi before startup");
+     }
+     private static void absent(File f) throws Exception {
+@@ -136,6 +145,7 @@
+         try {
+             phase = "process and offline checks";
+             processIdentity(c); requireOffline(c);
++            phase = "Python cold-start check";
+             if (com.chaquo.python.Python.isStarted()) throw new IOException("Python already initialized; cold startup required");
+             phase = "installed resource validation";
+             DataUpdates.reserveNativeStartup(c);
