@@ -1,0 +1,489 @@
+--- a/NativeStartupTrial.java
++++ b/NativeStartupTrial.java
+@@ -119,7 +119,7 @@
+         if (!safeManagedPreference(stat.st_mode, stat.st_uid, stat.st_gid, Process.myUid(), stat.st_nlink)
+                 || stat.st_size != size) throw new IOException("Unsafe Android-managed preference identity");
+     }
+-    private static byte[] readOwned(File file, int limit, boolean managedPreference) throws Exception {
++    static byte[] readOwned(File file, int limit, boolean managedPreference) throws Exception {
+         if (!file.equals(file.getCanonicalFile())) throw new IOException("Unsafe preference file path");
+         StructStat before = Os.lstat(file.getPath());
+         validateFile(before, before.st_size, managedPreference);
+@@ -140,10 +140,13 @@
+     // Read only: never invoke AtomicFile recovery or create a new catalogue during readiness.
+     private static boolean initialCatalogueOnly(File state, String[] step) throws Exception {
+         if (!LocalArchiveIntake.exists(state)) return false;
++        step[0] = "existing save state directory identity";
+         LocalArchiveIntake.directory(state);
++        step[0] = "existing save state listing";
+         String[] children = state.list();
+         if (children == null) throw new IOException("Cannot inspect save state");
+         if (children.length == 0) return false;
++        step[0] = "existing save state inventory";
+         if (children.length != 1 || !children[0].equals("slots"))
+             throw new IOException("Existing save state; preserved");
+         step[0] = "existing catalogue directory identity";
+@@ -226,31 +229,35 @@
+             return "Profile blocked at " + step[0] + ": " + error.getClass().getSimpleName();
+         }
+     }
++    private static void note(Context c, String stage) {
++        phase = stage; StartupDiagnostics.record(c, stage, null);
++    }
+     static String prepare(Context c) {
+         try {
+-            phase = "process and offline checks";
++            note(c, "process and offline checks");
+             String[] step = {phase};
+             try { checkPreflight(c, step); }
+             catch (Exception | LinkageError error) { phase = step[0]; throw error; }
+-            phase = "installed resource validation";
++            note(c, "installed resource validation");
+             DataUpdates.reserveNativeStartup(c);
+-            phase = "fresh profile check";
++            note(c, "fresh profile check");
+             step[0] = phase;
+             try { freshProfile(c, step); }
+             catch (Exception | LinkageError error) { phase = step[0]; throw error; }
+             // Scope bridge admission to this worker until all startup initialization succeeds.
+             preparing = Thread.currentThread();
+-            phase = "original save selection";
++            note(c, "original save selection");
+             SaveSlots.initialize(c);
+             if (SaveSlots.active() != 1) throw new IOException("Unexpected initial profile");
+-            phase = "original local bridge";
++            note(c, "original local bridge");
+             LocalGameBridge.initialize(c);
+-            phase = "Python local game initialization";
++            note(c, "Python local game initialization");
+             LocalGameBridge.prepareNativeStartup();
+-            phase = "ready to launch original Activity";
++            note(c, "ready to launch original Activity");
+             return null;
+         } catch (Exception | LinkageError error) {
+             running = false;
++            StartupDiagnostics.record(c, "Startup stopped at " + phase, error);
+             android.util.Log.e("ExviusNativeTrial", "Startup stopped at " + phase + " (" + error.getClass().getSimpleName() + ")");
+             return "Startup stopped at " + phase + ": " + error.getClass().getSimpleName() + ". Data preserved; do not clear app data.";
+         } finally { preparing = null; }
+@@ -262,7 +269,7 @@
+         String[] step = {"launch offline recheck"};
+         try { requireOffline(owner, step); }
+         catch (Exception | LinkageError error) { phase = step[0]; throw error; }
+-        phase = "original Activity component identity";
++        note(owner, "original Activity component identity");
+         ComponentName name = component(owner); PackageManager pm = owner.getPackageManager();
+         ActivityInfo info = pm.getActivityInfo(name, PackageManager.MATCH_DISABLED_COMPONENTS);
+         if (info.exported || info.enabled || pm.getComponentEnabledSetting(name) != PackageManager.COMPONENT_ENABLED_STATE_DEFAULT)
+@@ -274,11 +281,12 @@
+         try {
+             app.registerActivityLifecycleCallbacks(session);
+             pm.setComponentEnabledSetting(name, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+-            running = true; phase = "original Activity launched";
++            running = true; note(owner, "original Activity launched");
+             owner.startActivity(new Intent().setComponent(name).addFlags(
+                 Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS));
+         } catch (RuntimeException | LinkageError error) {
+             running = false; phase = "Activity launch failed";
++            StartupDiagnostics.record(owner, phase, error);
+             try { session.close(); }
+             catch (RuntimeException | LinkageError cleanup) { error.addSuppressed(cleanup); }
+             throw error;
+@@ -295,16 +303,24 @@
+             try { resetComponent(app); }
+             finally { app.unregisterActivityLifecycleCallbacks(this); }
+         }
+-        public void onActivityCreated(Activity activity, Bundle state) {}
++        public void onActivityCreated(Activity activity, Bundle state) {
++            if (LAPIS.equals(activity.getClass().getName())) StartupDiagnostics.record(app, "Lapis created", null);
++        }
+         public void onActivityStarted(Activity activity) {}
+-        public void onActivityResumed(Activity activity) {}
++        public void onActivityResumed(Activity activity) {
++            if (LAPIS.equals(activity.getClass().getName())) StartupDiagnostics.record(app, "Lapis resumed", null);
++        }
+         public void onActivityPaused(Activity activity) {}
+         public void onActivityStopped(Activity activity) {}
+         public void onActivitySaveInstanceState(Activity activity, Bundle state) {}
+         public void onActivityDestroyed(Activity activity) {
+             if (!LAPIS.equals(activity.getClass().getName()) || activity.isChangingConfigurations()) return;
+             phase = "original Activity session ended";
+-            close();
++            StartupDiagnostics.record(app, phase, null);
++            try { close(); } catch (RuntimeException | LinkageError error) {
++                StartupDiagnostics.record(app, "Activity cleanup failed", error);
++                throw error;
++            }
+         }
+     }
+ }
+--- a/DataDownloadActivity.java
++++ b/DataDownloadActivity.java
+@@ -14,7 +14,7 @@
+ public final class DataDownloadActivity extends Activity implements DataUpdates.Progress, DataUpdates.LocalProgress {
+     private TextView status;
+     private ProgressBar progress;
+-    private Button retry, manifestPicker, packPicker, localInstall, sequential, cleanup, network, startupProbe, nativeStart;
++    private Button retry, manifestPicker, packPicker, localInstall, sequential, cleanup, network, startupProbe, nativeStart, diagnosticReport;
+     private static final int PICK_MANIFEST = 2901, PICK_PACK = 2902, PICK_BATCH = 3001;
+     private boolean repairAssets;
+     private volatile int displayAttempt;
+@@ -49,10 +49,12 @@
+         int padding = (int) (24 * getResources().getDisplayMetrics().density);
+         page.setPadding(padding, padding, padding, padding);
+         TextView title = new TextView(this);
+-        title.setText("Exvius Offline");
++        title.setText("Exvius Offline - build " + StartupDiagnostics.version(this));
+         title.setTextSize(28);
+         title.setGravity(Gravity.CENTER);
+         page.addView(title);
++        diagnosticReport = button(page, "View / share startup report", this::showStartupReport);
++        diagnosticReport.setVisibility(View.GONE);
+         status = new TextView(this);
+         status.setText("Import the authentic manifest, then each game data ZIP.\nPrivate staging and installation require substantial free storage. Cleanup is optional before import.");
+         status.setTextSize(17);
+@@ -87,7 +89,7 @@
+             DataUpdates.prepare(this, this, repairAssets);
+         });
+         startupProbe = button(page, "Check original game startup readiness", () -> {
+-            startupProbe.setEnabled(false); nativeStart.setEnabled(false);
++            startupProbe.setEnabled(false); nativeStart.setEnabled(false); diagnosticReport.setEnabled(false);
+             status.setText("Checking process, offline state and installed resources...");
+             new Thread(() -> {
+                 final String result;
+@@ -106,8 +108,10 @@
+                         }
+                     }
+                 }
++                StartupDiagnostics.recordReadiness(getApplicationContext(), result, startupReadinessPassed(result));
+                 runOnUiThread(() -> {
+                     if (isFinishing() || isDestroyed()) return;
++                    diagnosticReport.setEnabled(true);
+                     boolean ready = !NativeStartupTrial.claimed() && startupReadinessPassed(result);
+                     status.setText(result + (ready ? "\nReady for one original game startup trial." : "\nNative startup trial remains blocked."));
+                     startupProbe.setEnabled(!NativeStartupTrial.claimed()); nativeStart.setEnabled(ready);
+@@ -117,7 +121,7 @@
+         startupProbe.setVisibility(View.GONE);
+         nativeStart = button(page, "Start original game (local profile trial)", () -> {
+             if (!nativeStart.isEnabled() || NativeStartupTrial.claimed() || isFinishing() || isDestroyed()) return;
+-            nativeStart.setEnabled(false); startupProbe.setEnabled(false);
++            nativeStart.setEnabled(false); startupProbe.setEnabled(false); diagnosticReport.setEnabled(false);
+             new android.app.AlertDialog.Builder(this).setTitle("Original game startup trial")
+                 .setMessage("Start the original engine using installed resources? Requires airplane mode and a fresh or verified initial catalogue. An existing initial catalogue will be reused; player saves are not reset. This is a first-launch test, not a completed game.")
+                 .setNegativeButton("Cancel", (dialog, which) -> cancelStartupConfirmation())
+@@ -129,10 +133,10 @@
+                     new Thread(() -> {
+                         String result = NativeStartupTrial.prepare(getApplicationContext());
+                         runOnUiThread(() -> {
+-                            if (isFinishing() || isDestroyed()) return;
+-                            if (result != null) { status.setText(result); return; }
++                            if (isFinishing() || isDestroyed()) { StartupDiagnostics.record(getApplicationContext(), "Owner Activity unavailable after preparation", null); return; }
++                            if (result != null) { status.setText(result); diagnosticReport.setEnabled(true); return; }
+                             try { NativeStartupTrial.launch(this); }
+-                            catch (Exception | LinkageError error) { status.setText("Startup stopped at " + NativeStartupTrial.launchPhase() + ": " + error.getClass().getSimpleName() + ". Data preserved; do not clear app data."); }
++                            catch (Exception | LinkageError error) { StartupDiagnostics.record(getApplicationContext(), "Launch stopped at " + NativeStartupTrial.launchPhase(), error); status.setText("Startup stopped at " + NativeStartupTrial.launchPhase() + ": " + error.getClass().getSimpleName() + ". Data preserved; do not clear app data."); diagnosticReport.setEnabled(true); }
+                         });
+                     }, "ExviusNativeStartup").start();
+                 }).show();
+@@ -161,9 +165,33 @@
+     private void cancelStartupConfirmation() {
+         if (isFinishing() || isDestroyed()) return;
+         nativeStart.setEnabled(false);
++        diagnosticReport.setEnabled(true);
+         startupProbe.setEnabled(!NativeStartupTrial.claimed());
+         status.setText("Startup cancelled. Check readiness again before starting.");
+     }
++    private void showStartupReport() {
++        nativeStart.setEnabled(false); startupProbe.setEnabled(false); diagnosticReport.setEnabled(false);
++        new Thread(() -> {
++            final String report = StartupDiagnostics.report(getApplicationContext());
++            runOnUiThread(() -> {
++                if (isFinishing() || isDestroyed()) return;
++                diagnosticReport.setEnabled(true);
++                startupProbe.setEnabled(!NativeStartupTrial.claimed());
++                new android.app.AlertDialog.Builder(this).setTitle("Startup report - review before sharing")
++                    .setMessage(report)
++                    .setPositiveButton("Copy", (dialog, which) -> {
++                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
++                        if (clipboard != null) clipboard.setPrimaryClip(android.content.ClipData.newPlainText("FFBE startup report", report));
++                    })
++                    .setNeutralButton("Share", (dialog, which) -> {
++                        Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, report);
++                        try { startActivity(Intent.createChooser(send, "Share startup report")); }
++                        catch (android.content.ActivityNotFoundException e) { status.setText("No sharing app available. Use Copy in startup report instead."); }
++                    })
++                    .setNegativeButton("Close", null).show();
++            });
++        }, "ExviusStartupReport").start();
++    }
+     private Button button(LinearLayout page, String label, Runnable action) {
+         Button button = new Button(this); button.setText(label);
+         button.setOnClickListener(view -> action.run()); page.addView(button); return button;
+@@ -221,6 +249,8 @@
+         if (!BootstrapAdmissionGate.gameplayApproved()) {
+             showDownloadPage();
+             status.setText("Game data setup complete. Gameplay remains on HOLD.");
++            diagnosticReport.setVisibility(View.VISIBLE);
++            diagnosticReport.setEnabled(true);
+             startupProbe.setVisibility(View.VISIBLE);
+             nativeStart.setVisibility(View.VISIBLE);
+             nativeStart.setEnabled(false);
+--- /dev/null
++++ b/StartupDiagnostics.java
+@@ -0,0 +1,256 @@
++package com.exvius.local;
++
++import android.content.Context;
++import android.os.Process;
++import android.system.Os;
++import android.system.OsConstants;
++import android.system.StructStat;
++import android.util.AtomicFile;
++import java.io.*;
++import java.nio.charset.StandardCharsets;
++import java.util.*;
++import org.json.JSONObject;
++import org.json.JSONArray;
++
++/** Local, bounded diagnostic output. No save writes, raw values, paths or automatic transmission. */
++final class StartupDiagnostics {
++    private static final int LIMIT = 32768;
++    private static final String[] STATE = {"campaign.json", "slots"};
++    private static final String[] SIDE = {".bak", ".new", ".tmp"};
++    private StartupDiagnostics() {}
++
++    static String version(Context c) {
++        try { return Integer.toString(c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode); }
++        catch (Exception | LinkageError e) { return "unavailable"; }
++    }
++    private static String safeToken(String v) {
++        return v != null && v.length() <= 160 && v.matches("[A-Za-z0-9_.$ :+()/-]+") ? v : "redacted";
++    }
++    // Only exception classes and fixed reason categories, never arbitrary messages or trace contents.
++    static String errorSummary(Throwable error) {
++        if (error == null) return "";
++        StringBuilder out = new StringBuilder();
++        for (int i=0; error!=null && i<5; i++,error=error.getCause()) {
++            if (i>0) out.append(" > ");
++            out.append(safeToken(error.getClass().getSimpleName()));
++            String m=error.getMessage();
++            if (m==null) continue;
++            if (m.contains("dlopen failed")) out.append(" [native loader]");
++            if (m.contains("No module named")) out.append(" [Python module missing]");
++            if (m.contains("Permission denied") || m.contains("EACCES")) out.append(" [permission denied]");
++            if (m.contains("No space left") || m.contains("ENOSPC")) out.append(" [storage full]");
++            if (m.contains("UnsatisfiedLinkError")) out.append(" [native link]");
++        }
++        return out.toString();
++    }
++    private static void checkRegular(File f, int max) throws Exception {
++        if (!LocalArchiveIntake.exists(f)) return;
++        StructStat s=Os.lstat(f.getPath());
++        LocalArchiveIntake.regular(s,s.st_size,1);
++        if (!f.equals(f.getCanonicalFile()) || s.st_size > max) throw new IOException("Unsafe diagnostic file");
++    }
++    private static AtomicFile journal(Context c) throws Exception {
++        File root=c.getNoBackupFilesDir().getCanonicalFile();
++        LocalArchiveIntake.filesRoot(root);
++        File dir=new File(root,"ffbe-startup-diagnostics");
++        if (!LocalArchiveIntake.exists(dir)) Os.mkdir(dir.getPath(),0700);
++        LocalArchiveIntake.directory(dir);
++        File file=new File(dir,"startup.txt");
++        for (String suffix:new String[]{"", ".bak", ".new"}) checkRegular(new File(file.getPath()+suffix),LIMIT);
++        return new AtomicFile(file);
++    }
++    private static String read(AtomicFile a) throws IOException {
++        try (InputStream in=a.openRead()) {
++            ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[1024]; int n;
++            while ((n=in.read(buf))!=-1) { if (n>LIMIT-out.size()) throw new IOException("Diagnostic limit"); out.write(buf,0,n); }
++            return new String(out.toByteArray(),StandardCharsets.UTF_8);
++        } catch (FileNotFoundException e) { return ""; }
++    }
++    static String boundedAppend(String old, String entry) {
++        String next=old+entry+"\n";
++        if (next.length()<=LIMIT) return next;
++        int cut=next.indexOf('\n',next.length()-LIMIT);
++        return cut<0?"":next.substring(cut+1);
++    }
++    static void recordReadiness(Context c, String result, boolean pass) {
++        if (pass) { record(c,"Readiness passed",null); return; }
++        for (String line:result.split("\n")) {
++            if ((line.startsWith("Profile blocked at ")||line.startsWith("Preflight blocked at "))
++                 && line.matches("[A-Za-z0-9_.$ :+()/-]{1,160}")) {
++                // Only the fixed label and exception type emitted by NativeStartupTrial.
++                record(c,line,null); return;
++            }
++        }
++        record(c,"Readiness blocked",null);
++    }
++    static synchronized void record(Context c, String event, Throwable e) {
++        // Diagnostic failure must not affect game admission or lifecycle cleanup.
++        try {
++            AtomicFile a=journal(c);
++            String entry=System.currentTimeMillis()+" build="+version(c)+" "+safeToken(event);
++            if (e!=null) entry+=" : "+errorSummary(e);
++            byte[] next=boundedAppend(read(a),entry).getBytes(StandardCharsets.UTF_8);
++            if (next.length>LIMIT) return;
++            FileOutputStream stream=a.startWrite();
++            try { stream.write(next); a.finishWrite(stream); }
++            catch (IOException | RuntimeException failure) { a.failWrite(stream); }
++        } catch (Exception | LinkageError ignored) { /* No dependency on diagnostic storage. */ }
++    }
++    static synchronized String history(Context c) {
++        try { String s=read(journal(c)); return s.isEmpty()?"No saved startup events.":s; }
++        catch (Exception | LinkageError e) { return "Startup journal unavailable: "+errorSummary(e); }
++    }
++    private static String type(StructStat s) {
++        if (OsConstants.S_ISDIR(s.st_mode)) return "directory";
++        if (OsConstants.S_ISREG(s.st_mode)) return "file";
++        return "other/nonregular";
++    }
++    // Report metadata only, and do not descend through a rejected directory.
++    private static boolean directory(File f, String name, StringBuilder out) throws Exception {
++        if (!LocalArchiveIntake.exists(f)) { out.append(name).append(": absent\n"); return false; }
++        StructStat s=Os.lstat(f.getPath());
++        out.append(name).append(": ").append(type(s)).append(" mode=").append(Integer.toOctalString(s.st_mode & 0777))
++            .append(" ownerMatches=").append(s.st_uid==Process.myUid()).append(" groupMatches=").append(s.st_gid==Process.myUid()).append('\n');
++        try { LocalArchiveIntake.directory(f); return true; }
++        catch (Exception e) { out.append(name).append(" identity: REJECTED\n"); return false; }
++    }
++    private static boolean sidecar(String name, String base) {
++        for (String suffix:SIDE) if (name.equals(base+suffix)) return true;
++        return false;
++    }
++    private static int countUnknown(String[] entries, String... allowed) {
++        Set<String> known=new HashSet<>(Arrays.asList(allowed)); int n=0;
++        for (String entry:entries) if (!known.contains(entry)) n++;
++        return n;
++    }
++    private static String[] list(File f) throws IOException {
++        String[] entries=f.list();
++        if (entries==null || entries.length>128) throw new IOException("Directory listing unavailable or too large");
++        return entries;
++    }
++    private static boolean has(String[] entries,String name) { return Arrays.asList(entries).contains(name); }
++    private static void filePresence(File parent,String name,String label,StringBuilder out) throws Exception {
++        File f=new File(parent,name);
++        if (!LocalArchiveIntake.exists(f)) { out.append(label).append(": absent\n"); return; }
++        StructStat s=Os.lstat(f.getPath());
++        out.append(label).append(": ").append(type(s)).append(" mode=").append(Integer.toOctalString(s.st_mode&0777))
++            .append(" ownerMatches=").append(s.st_uid==Process.myUid()).append(" links=").append(s.st_nlink)
++            .append(s.st_size==0?" empty":" nonempty").append('\n');
++    }
++    // These original validators are read-only. Shape validation is not proof of a playable campaign.
++    private static void catalogueShape(File slots,StringBuilder out) {
++        try {
++            byte[] bytes=NativeStartupTrial.readOwned(new File(slots,"index.json"),65536,false);
++            JSONObject index=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
++            SaveSlots.validateCatalogue(index);
++            out.append("Catalogue structure: matches original validator; slot count=").append(index.getJSONArray("slots").length())
++                .append("; active slot 1=").append(index.getInt("active")==1).append('\n');
++        } catch (Exception | LinkageError e) { out.append("Catalogue structure: not verified (").append(errorSummary(e)).append(")\n"); }
++    }
++    private static void campaignShape(File state,StringBuilder out) {
++        try {
++            File f=new File(state,"campaign.json");
++            if (!LocalArchiveIntake.exists(f)) return;
++            SaveTransferActivity.campaign(NativeStartupTrial.readOwned(f,8*1024*1024,false));
++            out.append("Slot 1 campaign structure: matches original validator; runtime compatibility unverified\n");
++        } catch (Exception | LinkageError e) { out.append("Slot 1 campaign structure: not verified (").append(errorSummary(e)).append(")\n"); }
++    }
++    static String profileInventory(Context c) {
++        StringBuilder out=new StringBuilder("Save inventory (read-only; no names/values of player data)\n");
++        try {
++            File files=c.getFilesDir().getCanonicalFile(); LocalArchiveIntake.filesRoot(files);
++            File game=new File(files,"exvius"); LocalArchiveIntake.directory(game);
++            File state=new File(game,"state");
++            if (directory(state,"State root",out)) {
++                String[] entries=list(state); int side=0;
++                for(String n:entries) if(sidecar(n,"campaign.json"))side++;
++                out.append("State children: ").append(entries.length).append("; unexpected: ").append(countUnknown(entries,STATE)-side).append("; campaign sidecars: ").append(side).append('\n');
++                filePresence(state,"campaign.json","Slot 1 campaign",out);
++                if (side==0) campaignShape(state,out);
++                File slots=new File(state,"slots");
++                if(directory(slots,"Slots directory",out)) {
++                    String[] names=list(slots); int backups=0,numbered=0,unknown=0;
++                    for(String n:names) {
++                        if(sidecar(n,"index.json")||sidecar(n,"delete.json"))backups++;
++                        else if(n.matches("00[2-9]|010"))numbered++;
++                        else if(!n.equals("index.json")&&!n.equals("delete.json")&&!n.equals("import"))unknown++;
++                    }
++                    out.append("Slot entries: ").append(names.length).append("; numbered directories/entries: ").append(numbered).append("; unknown: ").append(unknown).append("; catalogue/delete sidecars: ").append(backups).append('\n');
++                    out.append("Delete transaction entry: ").append(has(names,"delete.json")).append("; import staging entry: ").append(has(names,"import")).append('\n');
++                    filePresence(slots,"index.json","Catalogue",out);
++                    if(has(names,"index.json")&&backups==0)catalogueShape(slots,out);
++                }
++            }
++            filePresence(files,"LKCBK.dat","Keychain",out);
++            int keySide=0; for(String s:SIDE) if(LocalArchiveIntake.exists(new File(files,"LKCBK.dat"+s)))keySide++;
++            out.append("Keychain sidecars: ").append(keySide).append('\n');
++            File prefs=new File(new File(c.getApplicationInfo().dataDir).getCanonicalFile(),"shared_prefs");
++            LocalArchiveIntake.filesRoot(prefs);
++            String[] names=list(prefs); int backup=0,other=0;
++            for(String n:names)if(NativeStartupTrial.savePreferenceName(n)&&!n.equals("gamedata.xml")&&!n.equals("auth.xml")&&!n.equals("Cocos2dxPrefsFile.xml")) {
++                if(n.endsWith(".bak")||n.endsWith(".new")||n.endsWith(".tmp"))backup++;else other++;
++            }
++            filePresence(prefs,"gamedata.xml","Game preferences",out);
++            filePresence(prefs,"Cocos2dxPrefsFile.xml","Client preferences",out);
++            filePresence(prefs,"auth.xml","Auth preferences",out);
++            out.append("Save preference sidecars: ").append(backup).append("; other save-related preference entries: ").append(other).append('\n');
++            // The authenticated parser already rejects duplicate keys and unsupported XML declarations.
++            try {
++                org.w3c.dom.Element root=SaveTransferActivity.preferences(NativeStartupTrial.readOwned(new File(prefs,"gamedata.xml"),1024*1024,true)).getDocumentElement();
++                JSONObject registry=new JSONObject(new String(NativeStartupTrial.readOwned(new File(game,"data/registry.json"),1024*1024,false),StandardCharsets.UTF_8));
++                Map<String,String> observed=new HashMap<>(); int client=0;
++                for(org.w3c.dom.Node node=root.getFirstChild();node!=null;node=node.getNextSibling())if(node instanceof org.w3c.dom.Element){
++                    org.w3c.dom.Element el=(org.w3c.dom.Element)node; String key=el.getAttribute("name");
++                    if(!key.startsWith("keyF_"))client++;else if(el.getTagName().equals("string"))observed.put(key,el.getTextContent());
++                }
++                int missing=0,mismatch=0,extra=0;
++                for(Iterator<String> it=registry.keys();it.hasNext();){String k=it.next();if(!observed.containsKey(k))missing++;else if(!registry.getString(k).equals(observed.get(k)))mismatch++;}
++                for(String k:observed.keySet())if(!registry.has(k))extra++;
++                out.append("Registry missing/mismatched/extra string keys: ").append(missing).append('/').append(mismatch).append('/').append(extra).append("; non-registry keys: ").append(client).append('\n');
++            }catch(Exception|LinkageError e){out.append("Registry structure: not verified ("+errorSummary(e)+")\n");}
++        } catch(Exception | LinkageError e){out.append("Inventory stopped: ").append(errorSummary(e)).append('\n');}
++        return out.toString();
++    }
++    static String exitReasonName(int reason) {
++        switch(reason) {
++            case 1: return "self exit";
++            case 2: return "signal";
++            case 3: return "low memory";
++            case 4: return "Java crash";
++            case 5: return "native crash";
++            case 6: return "ANR";
++            case 7: return "initialization failure";
++            case 8: return "permission change";
++            case 9: return "excess resource use";
++            case 10: return "user requested";
++            case 11: return "user stopped";
++            case 12: return "dependency died";
++            default: return "other/unknown";
++        }
++    }
++    private static String recentExits(Context c) {
++        if (android.os.Build.VERSION.SDK_INT<30) return "Historical process exits unavailable on this Android version.\n";
++        try {
++            android.app.ActivityManager am=(android.app.ActivityManager)c.getSystemService(Context.ACTIVITY_SERVICE);
++            if(am==null)return "Historical process exit service unavailable.\n";
++            StringBuilder out=new StringBuilder("Recent process exits (system history, may include earlier builds)\n");
++            for(android.app.ApplicationExitInfo e:am.getHistoricalProcessExitReasons(c.getPackageName(),0,5)) {
++                out.append(e.getTimestamp()).append(" reason=").append(e.getReason()).append(" (").append(exitReasonName(e.getReason()))
++                    .append(") status=").append(e.getStatus()).append('\n');
++            }
++            return out.toString();
++        }catch(Exception|LinkageError e){return "Historical process exits unavailable: "+errorSummary(e)+"\n";}
++    }
++    static String report(Context c) {
++        StringBuilder out=new StringBuilder("FFBE-Custom mobile startup report\nInstalled versionCode: ").append(version(c))
++            .append("\nAndroid API: ").append(android.os.Build.VERSION.SDK_INT).append('\n');
++        try { out.append("Native page size: ").append(Os.sysconf(OsConstants._SC_PAGESIZE)).append('\n'); }
++        catch(Exception|LinkageError e){out.append("Native page size: unavailable\n");}
++        synchronized(DataUpdates.class) {
++            if(NativeStartupTrial.claimed())out.append("Profile inspection deferred: this process has reserved a startup trial.\n");
++            else out.append(profileInventory(c)).append(NativeStartupTrial.freshProfileDiagnostic(c)).append('\n');
++        }
++        out.append("\n").append(recentExits(c));
++        return out.append("\nPersistent startup events (Java phase markers only; native crash dumps not collected)\n").append(history(c)).toString();
++    }
++}
