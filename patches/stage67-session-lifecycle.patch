@@ -1,0 +1,60 @@
+--- a/NativeStartupTrial.java
++++ b/NativeStartupTrial.java
+@@ -1,6 +1,8 @@
+ package com.exvius.local;
+ 
+ import android.app.Activity;
++import android.app.Application;
++import android.os.Bundle;
+ import android.content.ComponentName;
+ import android.content.Context;
+ import android.content.Intent;
+@@ -243,16 +245,44 @@
+         ActivityInfo info = pm.getActivityInfo(name, PackageManager.MATCH_DISABLED_COMPONENTS);
+         if (info.exported || info.enabled || pm.getComponentEnabledSetting(name) != PackageManager.COMPONENT_ENABLED_STATE_DEFAULT)
+             throw new IOException("Original Activity component identity changed");
+-        // Enable only for synchronous launch resolution; restore the manifest default on every exit.
++        // The Activity launch is asynchronous; disabling its component here can finish it.
++        // Keep the override only for the admitted live session; the provider resets it cold.
++        Application app = owner.getApplication();
++        SessionLifecycle session = new SessionLifecycle(app);
+         try {
++            app.registerActivityLifecycleCallbacks(session);
+             pm.setComponentEnabledSetting(name, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+             running = true; phase = "original Activity launched";
+             owner.startActivity(new Intent().setComponent(name).addFlags(
+                 Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS));
+         } catch (RuntimeException | LinkageError error) {
+-            running = false; phase = "Activity launch failed"; throw error;
+-        } finally {
+-            pm.setComponentEnabledSetting(name, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
++            running = false; phase = "Activity launch failed";
++            try { session.close(); }
++            catch (RuntimeException | LinkageError cleanup) { error.addSuppressed(cleanup); }
++            throw error;
++        }
++    }
++    private static final class SessionLifecycle implements Application.ActivityLifecycleCallbacks {
++        private final Application app;
++        private boolean closed;
++        SessionLifecycle(Application app) { this.app = app; }
++        void close() {
++            if (closed) return;
++            closed = true;
++            running = false;
++            try { resetComponent(app); }
++            finally { app.unregisterActivityLifecycleCallbacks(this); }
++        }
++        public void onActivityCreated(Activity activity, Bundle state) {}
++        public void onActivityStarted(Activity activity) {}
++        public void onActivityResumed(Activity activity) {}
++        public void onActivityPaused(Activity activity) {}
++        public void onActivityStopped(Activity activity) {}
++        public void onActivitySaveInstanceState(Activity activity, Bundle state) {}
++        public void onActivityDestroyed(Activity activity) {
++            if (!LAPIS.equals(activity.getClass().getName()) || activity.isChangingConfigurations()) return;
++            phase = "original Activity session ended";
++            close();
+         }
+     }
+ }
