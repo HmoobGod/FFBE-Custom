@@ -1,0 +1,107 @@
+--- a/NativeStartupTrial.java
++++ b/NativeStartupTrial.java
+@@ -19,7 +19,7 @@
+ import org.w3c.dom.Element;
+ import org.w3c.dom.Node;
+ 
+-/** Explicit one-process, fresh-profile-only startup candidate. Not general gameplay approval. */
++/** Explicit one-process, fresh or verified catalogue-only startup candidate. Not general gameplay approval. */
+ final class NativeStartupTrial {
+     private static final String LAPIS = "com.square_enix.android_googleplay.FFBEWW.Lapis";
+     private static final String PACKAGE = "com.exvius.offline.test";
+@@ -136,7 +136,29 @@
+             return bytes;
+         } finally { Os.close(fd); }
+     }
+-    private static void freshProfile(Context c, String[] step) throws Exception {
++    // Exact initial catalogue emitted by the pinned SaveSlots.catalogue() implementation.
++    // Read only: never invoke AtomicFile recovery or create a new catalogue during readiness.
++    private static boolean initialCatalogueOnly(File state, String[] step) throws Exception {
++        if (!LocalArchiveIntake.exists(state)) return false;
++        LocalArchiveIntake.directory(state);
++        String[] children = state.list();
++        if (children == null) throw new IOException("Cannot inspect save state");
++        if (children.length == 0) return false;
++        if (children.length != 1 || !children[0].equals("slots"))
++            throw new IOException("Existing save state; preserved");
++        step[0] = "existing catalogue directory identity";
++        File slots = new File(state, "slots"); LocalArchiveIntake.directory(slots);
++        step[0] = "existing catalogue inventory";
++        String[] entries = slots.list();
++        if (entries == null || entries.length != 1 || !entries[0].equals("index.json"))
++            throw new IOException("Existing save or recovery entries; preserved");
++        step[0] = "existing initial catalogue identity";
++        byte[] catalogue = readOwned(new File(slots, "index.json"), 65536, false);
++        byte[] initial = "{\"format\":1,\"active\":1,\"slots\":[{\"id\":1,\"label\":\"\"}]}".getBytes(StandardCharsets.UTF_8);
++        if (!Arrays.equals(catalogue, initial)) throw new IOException("Non-initial catalogue; preserved");
++        return true;
++    }
++    private static boolean freshProfile(Context c, String[] step) throws Exception {
+         step[0] = "app private files root";
+         File files = c.getFilesDir().getCanonicalFile();
+         LocalArchiveIntake.filesRoot(files);
+@@ -158,7 +180,7 @@
+             throw new IOException("Unexpected existing game state: " + child);
+         }
+         step[0] = "existing save state";
+-        emptyState(new File(exvius, "state"));
++        boolean resumeInitial = initialCatalogueOnly(new File(exvius, "state"), step);
+         step[0] = "existing keychain or recovery file";
+         for (String suffix : new String[]{"", ".bak", ".new", ".tmp"}) absent(new File(files, "LKCBK.dat" + suffix));
+         File prefs = new File(new File(c.getApplicationInfo().dataDir).getCanonicalFile(), "shared_prefs");
+@@ -193,13 +215,13 @@
+         else if (!observed.equals(expected))
+             step[0] = "registry preference value mismatch";
+         validateRegistryOnly(observed, expected);
++        return resumeInitial;
+     }
+     // Read-only profile validation, without claim or save initialization. No paths or values in status.
+     static String freshProfileDiagnostic(Context c) {
+         String[] step = {"fresh profile check"};
+         try {
+-            freshProfile(c, step);
+-            return "Fresh profile checks: PASS";
++            return freshProfile(c, step) ? "Existing initial catalogue checks: PASS" : "Fresh profile checks: PASS";
+         } catch (Exception | LinkageError error) {
+             return "Profile blocked at " + step[0] + ": " + error.getClass().getSimpleName();
+         }
+--- a/DataDownloadActivity.java
++++ b/DataDownloadActivity.java
+@@ -115,11 +115,11 @@
+             }, "ExviusStartupProbe").start();
+         });
+         startupProbe.setVisibility(View.GONE);
+-        nativeStart = button(page, "Start original game (fresh profile trial)", () -> {
++        nativeStart = button(page, "Start original game (local profile trial)", () -> {
+             if (!nativeStart.isEnabled() || NativeStartupTrial.claimed() || isFinishing() || isDestroyed()) return;
+             nativeStart.setEnabled(false); startupProbe.setEnabled(false);
+             new android.app.AlertDialog.Builder(this).setTitle("Original game startup trial")
+-                .setMessage("Start the original engine using installed resources? Requires airplane mode and no existing player save. A new local profile may be created. This is a first-launch test, not a completed game.")
++                .setMessage("Start the original engine using installed resources? Requires airplane mode and a fresh or verified initial catalogue. An existing initial catalogue will be reused; player saves are not reset. This is a first-launch test, not a completed game.")
+                 .setNegativeButton("Cancel", (dialog, which) -> cancelStartupConfirmation())
+                 .setOnCancelListener(dialog -> cancelStartupConfirmation())
+                 .setPositiveButton("Start", (dialog, which) -> {
+@@ -145,15 +145,18 @@
+ 
+     // Exact report contract for the pinned Revision 13 readiness result; no saved UI grant.
+     static boolean startupReadinessPassed(String result) {
+-        return ("Process, offline and Python cold-start checks: PASS\n" +
++        String common = "Process, offline and Python cold-start checks: PASS\n" +
+                 "Revision 13 installed manifest: PASS (23 packs)\n" +
+                 "Required resource files and pending markers: PASS\n" +
+                 "Original client asset attachment: PASS\n" +
+                 "Original Lapis class resolution (no initialization): PASS\n" +
+-                "Original Activity manifest enabled: false; component override: 0\n" +
+-                "Save catalogue present: false (not opened)\n" +
+-                "Native startup and gameplay: not executed\n" +
+-                "Fresh profile checks: PASS\nNo startup attempt consumed.").equals(result);
++                "Original Activity manifest enabled: false; component override: 0\n";
++        String suffix = "Native startup and gameplay: not executed\n";
++        // The resource probe itself does not open the catalogue; the subsequent profile probe does.
++        return (common + "Save catalogue present: false (not opened)\n" + suffix +
++                "Fresh profile checks: PASS\nNo startup attempt consumed.").equals(result)
++            || (common + "Save catalogue present: true (not opened)\n" + suffix +
++                "Existing initial catalogue checks: PASS\nNo startup attempt consumed.").equals(result);
+     }
+     private void cancelStartupConfirmation() {
+         if (isFinishing() || isDestroyed()) return;
