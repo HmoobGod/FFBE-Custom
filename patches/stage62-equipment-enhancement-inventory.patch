@@ -1,0 +1,22 @@
+--- a/NativeStartupTrial.java
++++ b/NativeStartupTrial.java
+@@ -143,8 +143,18 @@
+         step[0] = "game directory inventory";
+         String[] children = exvius.list();
+         if (children == null) throw new IOException("Cannot inspect game root");
+-        for (String child : children) if (!child.equals("data") && !child.equals("state"))
++        for (String child : children) {
++            if (child.equals("data") || child.equals("state")) continue;
++            // DataPack.destination explicitly admits native/exvius/equipment-enhancement/...
++            // as event resources, not player state. Do not accept other unrecognized entries.
++            if (child.equals("equipment-enhancement")) {
++                step[0] = "equipment enhancement resource directory identity";
++                LocalArchiveIntake.directory(new File(exvius, child));
++                step[0] = "game directory inventory";
++                continue;
++            }
+             throw new IOException("Unexpected existing game state: " + child);
++        }
+         step[0] = "existing save state";
+         emptyState(new File(exvius, "state"));
+         step[0] = "existing keychain or recovery file";
