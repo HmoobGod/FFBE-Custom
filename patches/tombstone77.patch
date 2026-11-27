@@ -1,0 +1,142 @@
+--- a/src/StartupDiagnostics.java
++++ b/src/StartupDiagnostics.java
+@@ -234,9 +234,14 @@
+             android.app.ActivityManager am=(android.app.ActivityManager)c.getSystemService(Context.ACTIVITY_SERVICE);
+             if(am==null)return "Historical process exit service unavailable.\n";
+             StringBuilder out=new StringBuilder("Recent process exits (system history, may include earlier builds)\n");
+-            for(android.app.ApplicationExitInfo e:am.getHistoricalProcessExitReasons(c.getPackageName(),0,5)) {
++            int nativeTraces=0;
++            for(android.app.ApplicationExitInfo e:am.getHistoricalProcessExitReasons(c.getPackageName(),0,16)) {
+                 out.append(e.getTimestamp()).append(" reason=").append(e.getReason()).append(" (").append(exitReasonName(e.getReason()))
+                     .append(") status=").append(e.getStatus()).append('\n');
++                if (android.os.Build.VERSION.SDK_INT>=31 && e.getReason()==5 && nativeTraces++<3) {
++                    try { out.append(TombstoneSummaryReader.summarize(e.getTraceInputStream())); }
++                    catch (Exception | LinkageError failure) { out.append("Native trace unreadable or exceeds limit.\n"); }
++                }
+             }
+             return out.toString();
+         }catch(Exception|LinkageError e){return "Historical process exits unavailable: "+errorSummary(e)+"\n";}
+@@ -251,6 +256,6 @@
+             else out.append(profileInventory(c)).append(NativeStartupTrial.freshProfileDiagnostic(c)).append('\n');
+         }
+         out.append("\n").append(recentExits(c));
+-        return out.append("\nPersistent startup events (Java phase markers only; native crash dumps not collected)\n").append(history(c)).toString();
++        return out.append("\nPersistent startup events (Java phase markers only; raw native crash dumps not retained)\n").append(history(c)).toString();
+     }
+ }
+--- /dev/null
++++ b/src/TombstoneSummaryReader.java
+@@ -0,0 +1,75 @@
++package com.exvius.local;
++
++import java.io.*;
++import java.nio.charset.StandardCharsets;
++import java.util.*;
++
++/** AOSP debuggerd tombstone.proto. Bounded, read-only; never emits raw messages or memory. */
++final class TombstoneSummaryReader {
++    static final int LIMIT = 2 * 1024 * 1024;
++    private TombstoneSummaryReader() {}
++    private static IOException invalid() { return new IOException("Invalid or oversized native trace"); }
++    private static final class Wire {
++        final byte[] b; int p; final int end;
++        Wire(byte[] b,int p,int end) { this.b=b; this.p=p; this.end=end; }
++        boolean more() { return p<end; }
++        long varint() throws IOException {
++            long v=0;
++            for(int i=0;i<10;i++) { if(p>=end)throw invalid(); int x=b[p++]&255;
++                if(i==9&&(x&254)!=0)throw invalid(); v|=(long)(x&127)<<(7*i); if((x&128)==0)return v; }
++            throw invalid();
++        }
++        int tag() throws IOException { long t=varint(); if(t<=0||t>0xffffffffL||(t>>>3)==0)throw invalid(); return (int)t; }
++        void advance(int n)throws IOException { if(n<0||n>end-p)throw invalid();p+=n; }
++        Wire message()throws IOException {long n=varint();if(n<0||n>end-p)throw invalid();int start=p;advance((int)n);return new Wire(b,start,p);}
++        String string()throws IOException {Wire w=message(); return new String(b,w.p,Math.min(w.end-w.p,4096),StandardCharsets.UTF_8);}
++        void skip(int t)throws IOException {switch(t&7){case 0:varint();break;case 1:advance(8);break;case 2:message();break;case 5:advance(4);break;default:throw invalid();}}
++    }
++    static String category(String raw) {
++        String s=raw.toLowerCase(Locale.ROOT); List<String> a=new ArrayList<>();
++        if(s.contains("jni detected error")||s.contains("invalid jni"))a.add("JNI validation");
++        if(s.contains("transition frame"))a.add("JNI transition frame");
++        if(s.contains("no implementation found")||s.contains("nosuchmethod")||s.contains("no such method"))a.add("JNI method resolution");
++        if(s.contains("nosuchfield")||s.contains("no such field"))a.add("JNI field resolution");
++        if(s.contains("frida")||s.contains("gadget"))a.add("Frida/Gadget marker");
++        if(s.contains("scudo"))a.add("Scudo allocator");
++        if(s.contains("fdsan"))a.add("file descriptor sanitizer");
++        if(s.contains("std::terminate")||s.contains("terminating with uncaught exception"))a.add("C++ termination");
++        if(s.contains("dlopen")||s.contains("cannot locate symbol")||s.contains("library not found"))a.add("native loader");
++        if(s.contains("permission denied")||s.contains("eacces"))a.add("permission denied");
++        if(s.contains("assertion")||s.contains("assert failed"))a.add("assertion");
++        if(s.contains("use-after-free")||s.contains("use after free"))a.add("use after free");
++        if(s.contains("double free"))a.add("double free");
++        if(s.contains("null pointer"))a.add("null pointer");
++        if(s.contains("python")||s.contains("chaquopy"))a.add("Python marker");
++        return a.isEmpty()?"unclassified (raw text withheld)":String.join(", ",a);
++    }
++    // Only well-known native modules; offsets retained for symbolication. Unknown names are redacted.
++    private static String module(String s) {
++        String n=s.substring(s.lastIndexOf('/')+1);
++        if(n.startsWith("_cffi_backend") && n.endsWith(".so")) return "_cffi_backend.so";
++        if(n.startsWith("_rust") && n.endsWith(".so")) return "_rust.so";
++        if(n.matches("(?:lib(?:game|exviustest(?:\\.js)?|frida-gadget|art(?:d)?|c|dl|m|log|c\\+\\+_shared|c\\+\\+|android|nativehelper|base|utils|unwindstack|binder|EGL|GLESv[123](?:_CM)?|OpenSLES|audioclient|python[0-9.]*|chaquopy_java|ffi|curl|ssl|crypto|z|cocos2d(?:x)?|hwui)|_cffi_backend(?:\\.[A-Za-z0-9_-]+)*|_rust(?:\\.[A-Za-z0-9_-]+)*)\\.so")||n.equals("linker64")||n.equals("linker"))return n;
++        return "other module";
++    }
++    private static String symbol(String s) {
++        if(s.equals("abort")||s.equals("tgkill")||s.equals("__assert2")||s.equals("JNI_OnLoad")||s.equals("nativeInit"))return s;
++        // Fixed classification, not untrusted function strings.
++        String l=s.toLowerCase(Locale.ROOT);
++        for(String k:new String[]{"jni_onload","nativeinit","checkjni","jniabort","decodegcmask","markcompact","frida","gadget","scudo","fdsan","terminate","dlopen","pyinitialize","py_initialize","cocos2d"})if(l.contains(k))return k;
++        return "symbol withheld";
++    }
++    private static String signal(Wire w)throws IOException {int n=0,c=0;while(w.more()){int t=w.tag();if(t==8)n=(int)w.varint();else if(t==24)c=(int)w.varint();else w.skip(t);}return "Signal: "+n+(n==6?" (SIGABRT)":n==11?" (SIGSEGV)":"")+" code="+c;}
++    private static String frame(Wire w)throws IOException {long pc=0,off=0;String m="",s="";while(w.more()){int t=w.tag();switch(t){case 8:pc=w.varint();break;case 34:s=w.string();break;case 40:off=w.varint();break;case 50:m=w.string();break;default:w.skip(t);}}
++        return module(m)+" rel_pc=0x"+Long.toHexString(pc)+" "+symbol(s)+" +0x"+Long.toHexString(off);}
++    private static String thread(Wire w,long wanted)throws IOException {long id=0;List<String> frames=new ArrayList<>();while(w.more()){int t=w.tag();if(t==8)id=w.varint();else if(t==34){Wire f=w.message();if(frames.size()<16)frames.add(frame(f));}else w.skip(t);}if(id!=wanted)throw invalid();StringBuilder out=new StringBuilder("Crashing thread frames (up to 16):\n");for(int i=0;i<frames.size();i++)out.append('#').append(i).append(' ').append(frames.get(i)).append('\n');if(frames.isEmpty())out.append("No frames retained.\n");return out.toString();}
++    private static String entry(Wire w,long tid)throws IOException {long key=0;Wire value=null;while(w.more()){int t=w.tag();if(t==8)key=w.varint();else if(t==18)value=w.message();else w.skip(t);}return key==tid&&value!=null?thread(value,tid):null;}
++    static String summarize(InputStream stream)throws IOException {
++        if(stream==null)return "Native trace unavailable (not retained).\n";
++        byte[] bytes; try(InputStream in=stream){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1){if(n==0||n>LIMIT-out.size())throw invalid();out.write(buf,0,n);}bytes=out.toByteArray();}
++        if(bytes.length==0)throw invalid(); Wire w=new Wire(bytes,0,bytes.length);long tid=0;String sig="Signal unavailable",abort="absent";List<String> causes=new ArrayList<>();boolean recognized=false;
++        while(w.more()){int t=w.tag();switch(t){case 48:tid=w.varint();break;case 82:sig=signal(w.message());recognized=true;break;case 114:abort=category(w.string());break;case 122:Wire cause=w.message();while(cause.more()){int ct=cause.tag();if(ct==10){String s=category(cause.string());if(causes.size()<4)causes.add(s);}else cause.skip(ct);}break;default:w.skip(t);}}
++        if(!recognized)throw invalid();String trace=null;w=new Wire(bytes,0,bytes.length);while(w.more()){int t=w.tag();if(t==130&&tid>0){String match=entry(w.message(),tid);if(match!=null){if(trace!=null)throw invalid();trace=match;}}else w.skip(t);}
++        return sig+"\nAbort category: "+abort+"\n"+(causes.isEmpty()?"":"Cause categories: "+String.join("; ",causes)+"\n")+(trace==null?"Crashing thread unavailable; no fallback guessed.\n":trace);
++    }
++}
+--- a/mocksrc/android/app/ApplicationExitInfo.java
++++ b/mocksrc/android/app/ApplicationExitInfo.java
+@@ -1 +1 @@
+-package android.app; public class ApplicationExitInfo { public int reason,status; public long timestamp; public int getReason(){return reason;}public int getStatus(){return status;}public long getTimestamp(){return timestamp;} }
++package android.app; public class ApplicationExitInfo { public byte[] trace; public java.io.InputStream getTraceInputStream(){return trace==null?null:new java.io.ByteArrayInputStream(trace);} public int reason,status; public long timestamp; public int getReason(){return reason;}public int getStatus(){return status;}public long getTimestamp(){return timestamp;} }
+--- /dev/null
++++ b/mocksrc/com/exvius/local/TombstoneSummaryTest.java
+@@ -0,0 +1,30 @@
++package com.exvius.local;
++import java.io.*;import java.nio.charset.StandardCharsets;import java.util.*;
++public class TombstoneSummaryTest {
++ static int count; static void check(boolean v,String name){if(!v)throw new AssertionError(name);count++;System.out.println("PASS "+name);}
++ static byte[] v(long n){ByteArrayOutputStream b=new ByteArrayOutputStream();while((n&~127L)!=0){b.write((int)n&127|128);n>>>=7;}b.write((int)n);return b.toByteArray();}
++ static byte[] join(byte[]...p){ByteArrayOutputStream b=new ByteArrayOutputStream();for(byte[] x:p)b.writeBytes(x);return b.toByteArray();}
++ static byte[] num(int n,long x){return join(v(n*8),v(x));}
++ static byte[] msg(int n,byte[] x){return join(v(n*8+2),v(x.length),x);}
++ static byte[] str(int n,String x){return msg(n,x.getBytes(StandardCharsets.UTF_8));}
++ static byte[] frame(String f,String fn){return msg(4,join(num(1,0x1234),str(4,fn),num(5,7),str(6,f),num(2,0xDEAD)));}
++ static byte[] thread(long n,byte[]...f){return msg(16,join(num(1,n),msg(2,join(num(1,n),str(2,"PRIVATE_THREAD"),join(f),str(5,"PRIVATE_MEMORY")))));}
++ static byte[] sig(){return msg(10,join(num(1,6),str(2,"SIGABRT"),num(3,-1),str(4,"SI_QUEUE"),num(7,123)));}
++ static String read(byte[] b)throws Exception{return TombstoneSummaryReader.summarize(new ByteArrayInputStream(b));}
++ static void bad(byte[] b,String n)throws Exception{try{read(b);throw new AssertionError(n);}catch(IOException e){check(true,n);}}
++ public static void main(String[] args)throws Exception{
++  byte[] a=join(thread(7,frame("/data/private/libgame.so","JNI_OnLoad")),thread(8,frame("/private/libart.so","abort")),sig(),num(6,7),str(14,"JNI DETECTED ERROR: invalid JNI transition frame PRIVATE_PLAYER"),msg(15,str(1,"Scudo double free SECRET")),str(18,"PRIVATE_LOG"));
++  String r=read(a);check(r.contains("Signal: 6 (SIGABRT) code=-1"),"signal signed code");check(r.contains("JNI validation")&&r.contains("JNI transition frame"),"abort category");check(r.contains("Scudo allocator")&&r.contains("double free"),"cause category");check(r.contains("libgame.so rel_pc=0x1234 JNI_OnLoad +0x7")&&!r.contains("libart.so"),"crashing tid selected independent of ordering");check(!r.contains("PRIVATE")&&!r.contains("SECRET")&&!r.contains("/data")&&!r.contains("dead"),"private fields withheld");
++  check(read(join(sig(),num(6,9),thread(7,frame("libgame.so","abort")))).contains("no fallback guessed"),"unmatched tid no guess");
++  check(read(sig()).contains("Crashing thread unavailable"),"missing thread");
++  check(TombstoneSummaryReader.summarize(null).contains("not retained"),"null trace");
++  byte[][] frames=new byte[20][];Arrays.fill(frames,frame("libc.so","abort"));r=read(join(sig(),num(6,7),thread(7,frames)));check(r.contains("#15 ")&&!r.contains("#16 "),"16 frame cap");
++  check(read(join(sig(),num(6,7),thread(7,frame("/data/private/PRIVATE.so","PRIVATE_SYMBOL")))).contains("other module rel_pc=0x1234 symbol withheld"),"unknown module and symbol redacted");
++  check(read(join(sig(),new byte[]{(byte)0xA1,1,0,0,0,0,0,0,0,0,(byte)0xAD,1,0,0,0,0})).contains("Signal: 6"),"skip fixed64 and fixed32");
++  bad(Arrays.copyOf(a,a.length-1),"truncated message");bad(new byte[]{(byte)0x80},"truncated varint");bad(new byte[]{0},"zero tag");bad(new byte[]{11},"unsupported group");bad(new byte[]{(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,2},"varint overflow");bad(new byte[TombstoneSummaryReader.LIMIT+1],"byte cap");bad(new byte[0],"empty stream");bad(str(18,"not a tombstone"),"no recognized signal");bad(join(sig(),num(6,7),thread(7),thread(7)),"duplicate crashing entry");
++  final boolean[] closed={false};TombstoneSummaryReader.summarize(new ByteArrayInputStream(sig()){public void close(){closed[0]=true;}});check(closed[0],"stream closed");
++  closed[0]=false;try{TombstoneSummaryReader.summarize(new ByteArrayInputStream(new byte[]{0}){public void close(){closed[0]=true;}});}catch(IOException expected){}check(closed[0],"malformed stream closed");
++  ProfileMockTest.setup();try{android.app.ApplicationExitInfo e=new android.app.ApplicationExitInfo();e.reason=5;e.status=6;e.timestamp=1795802263211L;e.trace=a;ProfileMockTest.c.am.events.add(e);r=StartupDiagnostics.report(ProfileMockTest.c);check(r.contains("1795802263211 reason=5")&&r.contains("JNI transition frame")&&!r.contains("PRIVATE_PLAYER"),"report integration");android.os.Build.VERSION.SDK_INT=30;check(!StartupDiagnostics.report(ProfileMockTest.c).contains("Abort category"),"API30 fallback");android.os.Build.VERSION.SDK_INT=35;e.trace=new byte[]{0};check(StartupDiagnostics.report(ProfileMockTest.c).contains("Native trace unreadable"),"invalid trace isolated from report");}finally{ProfileMockTest.clean();}
++  System.out.println(count+" tombstone host cases PASS");
++ }
++}
