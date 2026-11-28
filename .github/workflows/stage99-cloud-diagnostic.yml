@@ -1,0 +1,255 @@
+name: Stage99 exact diagnostic cloud test
+on:
+  push:
+    branches: [stage99-cloud-diagnostic]
+    paths: ['.github/workflows/stage99-cloud-diagnostic.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Restore exact signed standalone diagnostic from previous public build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage99/evidence"
+          cd "$RUNNER_TEMP/stage99"
+          curl -fLsS --retry 2 --max-time 90 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/15246489482/zip" -o previous.zip
+          echo '81a605ab4848ccd5f7d6e53a9aa7b196606da8b32a815c15da703765788cd90c  previous.zip' | sha256sum -c -
+          unzip -p previous.zip FFBE-Isolated-Diagnostic95-UNSIGNED.apk > unsigned.apk
+          echo 'c33ea91c03aac3295fe8860d7cbb7ff31605d234602a2a2601b71b1ac02db2f1  unsigned.apk' | sha256sum -c -
+          cat > transport.b64 <<'EOF'
+          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
+          Yo9X/dYB0fz4X78dRhdrPf94Ge8liXFLDAAAAAAAAAAAAAAAAAAAAP4JX0+HoKkRL1CS8MbzkvDpdAgzPco35aq7hDjynrymQxC/
+          +oXpEE0ckY+nQ/ikwnQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD43+nv3z76IdIsx1FvDM8zn74YzhkSKdOI5b42BOT16MfUT//l
+          Rz/Y03UVmh8/+rElKR79AAAAAAAAAAAAAAAAAAAAAACA/62+neLFMTTNvLEjgWU+m+JlD/3wZk5dUyfjpyLnZE1ISf58ihd/SqOS
+          ZvwF+S2872aYjSSR4t44jpG4j6eYmb/Fn81IqNO+2aenNPrtq9ePP4mfXoVd6dSnZ8pw38RHswwjUtTbiOE/i8y6ttR+lRlHhdiT
+          mfxpZF4RM8vHWuHbJKS+j4zlRfqNFhiOFj5dOnnSZfdIy/vvcvzaeiYk+zg+1qqyaHnK6mWThDyVPegiqynGU2hmoqu3VUjz3roc
+          E+KT76fz0ZwoUCPmjWH+qbQcfnqgf0zLPmXops/039OhfUnHt2XulQ5a4P4sHSSmrPElu4bEZp0+PSUh+U/S4VGJ3p3i3Yd5of6W
+          hh/yguGZN5qTWIllP53cqO+IsTqOjve+MAhOS4q/kJDvM+LDRDB92Wc48Y2lmZE0oj8t/u5W44W4dQkxfKvf/pplSfyQL7NaOiUq
+          XaR1VSeRRzmHokm/O/JCX9EYQXwThdGnWe4sxnFgv39/HX8yeR36/vA+U3b56Iv506m1R8a4P63PfUQSLVJvX9dlNLj/A03z6e8f
+          73n2+8dV0VZd8/rumH0bK1OvY+z8ozyMX4XYfH2yKXW5XEgj+TA5zYeL0F/dWKEy3IIenQ+Wer0S9RnvZrwwE5zXf1Ly16TdNs/9
+          0jVNZW/3YeWqQvKSnK7RQJzSe+MktmM/tuxjYhb3zCO+6sg+af2xmrnyUSf0QlUKN5hH3j3VNSoJ/XymV0XC8PeMnZ3ip5q7Mvf+
+          d6Rzo1mZKLO5rK5C7ZDW0nOtV3tT86g4XFeTIGuNIvPcfdy5gcm548XDG5MufG17vm+j/9i2l4k7a1s9j8dL37fVzrMyRrrG0axK
+          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
+          KVsdzC9eGp/mK7aexf5hR4XlVGHrIkoHHDPdS/KS31z00WGwlqaPzSUrJ2O5mTO2d5loeTPhOX1FjUbpMIvLx3ZjW8Lp6F+502JR
+          Sfwt1BS6XN7LxV1hU55P9rem3dJ9PzlZecyUIyc1T9XkOjh4S6um7H2Z5TTLGmP3WgjbeWcqzeUZnB6ScDbpodhnyfpwS3KPnjnz
+          /Um4KqTt242UM35vV1q9CEQn7r8rD7lvftL3ceF7O3T88gf93yvvg81G1pbL6aZNnufFndZK/dIMTrOnud4Ip8fMcYjsMma52ZSb
+          3es/keOrcPbjStV6jZmOj5y0pkxy0yJ2qg3vYynuhO335VZpF8TtR4rGmKxe/alMjoFKVc+U6Yq1viy/G7d1fQ+8+fJ3btCPPnW/
+          XHw7/nzIwVrXDklQsv04NBoHJuMG6mMyJrS791t3eey3ue/bvOCPbf9t41vUVdTVf6qurtzClcXW8Pvzlxk1keVY1fRxfhtb98Zx
+          aaM6pIbNBlV0mh+is/9RfXqVrdyXB9Rtm1/4RArLaH+fu6c+9Vu5GN3Cjpov8o3HDIbn5hwY1TDNtONpsNOEdhO4yYYdCoOBtNU3
+          YvE8i0LFLTpfOwcnc/gMaGp2i/shuHTerQ5tZ0i37ZI/cZdJpjiL4FqMY2knj+s+6fpQCvve/EFEbT9+JDNF9/SBsG75bn7O1sLY
+          vhRUyQstOUwKZawnqWZSN2q65Z5qvbkPGiqZO9ogGW/YsuOE4yGLJrbOm+FcaiRh41y7trlJGyXS53W3P3QuVTxa6jkhZj+q7Evz
+          opLXw7uSbxYHau7Y7VmtO11ai7OdLuypfnB/M/JyeF2WaT8aOk27xAzTCwme82G2GYwukmhstqbV0Od49mCTzUK6WPPZnN3erjQ7
+          Derp+Xa8cY6U1mvu2B0vym7msutTV7rb1DXHE1ZQL6v6bKfruHT5i8HP7e1MGSXLalbZ12RInpP4NFT26jw5H4PbyaX27rNZJIbQ
+          iZOFd5oZJmtXAbN8CBePaxeM4tG7JSXMHJvxF47YMrW5rZl1oQYGl1GDRl5uLyf7MEyMvbGhj3r2ft1w2Nu+N+/kH9+5tm+qFfP9
+          YtirzJnvl5GWrryfre9U7e6v5yS1dulm3te8xXT46E+l5TYds4PLcbzwDcrN5SSl7p1Ys6ldTejOvRw5fpyGAzONhupwHfanu2nB
+          asLFSg/Xi+1Nigtzj1cNOZfmYb5hOqbUJ7t0Z1hCmkiHrds4ayfZXVfVNU795soknBqWs1i4JMPsOfX0sE78yf25yYwjWcZRWp7b
+          h16ZIzO3jdX6tlcMYSsdq6IUFV33A2nj2td9s/d4nlX77mCVRjvt2I9itZEwmzGbqelfM37nn5/uXXgN8pdL9TGjLvMHJwiXnZBW
+          t8U6rCg5zmlB1KjhXXI3OfUg04t9mYupWo78umXiObccX7ddPU1PK1aRR85SWC/I9HEvq1oyTGu240/BYfTMfUGNQ4tbXZtBc3bn
+          3WpNzKJ01FC9nVr9UdVeM7N0Y1y0D2fEan7nubVvUvJJJvfd6Em3C3sVklXYTPcLr43MwaBSw9zWmHh3d1jBVvpOhCzzjlCUyWh2
+          uRsOT1R5uBzKurrI5ZgWzPVU5/rT1PGyk29iO2oGt9VyP9/vj22RtZFSv8pD33/Lxz3x5Lw8F+VOl1qq769UjZCJQmLx/fddbvef
+          VXK16edN3CwoZZGNC+r+OC+VeVgtbIqIoyGj59GEN8VNboYLzqm8OM0v1GnUTUN5VdO33Y12G0Xvls54PFVoh9ePjK8vVnOqepjF
+          cevai5IjlTQ+l9IhTRt9ddM8z5skk1MpD9WGva2p0FgcxMwSc7WwmGwim35ruXJ7N3elMWmd+KjpmfPYDQQhi4eDfLbbLrqHqB4H
+          Wq2Ut2WcPU+NvRqwA2044yjVGkra2pDaas+WU5uSnsp16LkNMS+iKtq76705XKfxZXmiOPtiRO5MHKkn99DH2rdoVMVstZsw0byd
+          krH1bTYyzpMmkoaS13iScFsP6/BOcXtldTvc5hf7qXOSUkzL8zPsh/51w5ehanGNdhq3DX9cMsObt+eG/nITnbsbPzxsA/FwZq1x
+          3qaLZrdfPYvYCW4buW4mA2bI6pZ7YHe7zXmlOhN7qVnbTVoVfpNoKa85bcMMNmE8umSGFFD2uN6v9wNiz0y909Pp6bmcJ41y5A3T
+          W0td+3TMzYG6zsllJVJCdt+cd952qE5tNhnV8Xi9mFNHYXMh/UiIEO0fJ63GuspK87/5oumYG7e/fVQ1f96P91Zhlvt1d4+Za+6N
+          LX/eqv0I9kuy+g+FoqjKlrm3VPB+9Z97v6jufxvqyfyynkGwWC78OW31J4h9eFLjMNotMaz7KvTv8WF5SnX/nrBWkehd1f/WZgrd
+          JNGs/65R8Zxvs1pqk8jqx6rL50K99uPf/vz9XU5MPy9IUUcXMlhs+vjv5NXuXr9NiD2Xd6/9073rl7sb7i3Rl9y3YZEvYeUz49Es
+          SdQ34L7WKkRRfwhr3jeX5P1uiPT1bZl+bFvtYqYosmh5z4xqu6r7lmTOP1Nadsjr/l779T0Ja90aZPt4ZZ2bT94vT3xDKfPFOCO5
+          /Foy4rs3iPZx195jE8lUSkv7la5161BqNz+Nyz76y+cuc1yOGErfnb/u9HwXV9anof3TuNpNNDu+7v5kjPRNmSC/lYnjce6nO3L2
+          fJLb+wUx8u/LhNaKzyt55VV/rB9pEFNOFHPxXOrjtn4P/+ns1dY5ePcPj9GtM5z4Yo77sN/zT/F/OEamcup+dowyVruuolnl/rW8
+          4y3VJPaUmhFlL6k+2f2Yd8Uk83+Sdwev6+OkksDb9mWCWunS7af71Wyycl1zr/26ve8X+WG/bIMZ/3y/vGv09V27n8VT+Jx5pM2C
+          lGTeF0Qicz/EczOFz+P5YwmTn5ZvYdLGZtP2O+NkrwYs+rF8F+rel4s+vGptuPd/1J2yz0e5deqq2Sw/CtsxnKJqH2rfPbuF0vex
+          gx/CDl6H4Sdh19J9bXhUVmutE/L9OXHFJPNv9zNiLMHd8fs/jlngdq7ys301bTash7q2GBO5WPb1SP6xjOyVff4r6fGovg5W2eOv
+          psmW13bMU1Y/LvWUjPjy+Ic0zYpl+Utpmr2uJ/TtMl05tfd73W3c5yd1t2JSVt/k19YlR8cdk7H4Q9mj5MeC6NozY5ZU9vi6jkq7
+          lJGojJ094og0aa1RqyipvmtHtqlxavp29y/mkzXsrP406FXpxnlfET44dqvxs2p/IZ/6vi2tZ/f0L6fJvNy6xIu1su9n5OTDNAU5
+          V5NfSVPfTgSL7q+XcevuL4Nw7vSnPOqO+TBNoZL8Ypqo7LDcr5W/XMYnI+XQUnrf33vypU+T8kEbw9S/0A7EdXXrxwz7VVh+sGzT
+          x33gYsWrE005KK3sn9ormbTf94GGL/B/ZY7Rz94gfirWtfr1vvw0LV3g6rfzePW6Uc3kr9vjP/TH/klY/EJa6D7f8r+cN7pA+lOW
+          11vUlTZuP0qPntfnmPzXv1394/QM22kk++9Le5Hy4/S0ppCR//olvz5Oz53SLrsv89DENo+J8cGYmvpL6XnNT6s+HLcfVF8rmsWr
+          rpxe16v1H/eZVCvuL8xB4z8MP3U9kznIAsmVfen7H4Xv1Tb3F6ad0R/m0fgaOXT3fuklfO8yfghfpdWR+i9PM/v4vGCkPaTsPb73
+          KWRK9kO/VReT7if91iPp419FVpWGy1vfDjWv86A07Nu3n45xPpom9l3btuWC60/atr6PLN/H2OHXfeOPZeKPduKYy8z5NQtM2d92
+          Yr/PP7RZNCtm/9TssN/ykXxzrnbsxOhw2r/2df3aJdn94WyU5S9sfx762znizItD/pTUy2dfJrg07H5LP/km/QpNGPWR/3HPZZx/
+          H6r8PNyzD+Z8eX14C/33Atwfher91o0zZr9M7/vP/wMxp78o
+          EOF
+          base64 -d transport.b64 > transport.zlib
+          echo 'a0b3da22d588228dc0dcc9b269ff2a6a0c4af18a180a3a2a9f711d889da04423  transport.zlib' | sha256sum -c -
+          python3 - <<'PY'
+          import base64,hashlib,json,zlib,pathlib,zipfile
+          a=pathlib.Path('unsigned.apk').read_bytes()
+          ops=json.loads(zlib.decompress(pathlib.Path('transport.zlib').read_bytes()))
+          assert len(ops)==65
+          out=b''.join(base64.b64decode(o[1],validate=True) if o[0]=='lit' else a[o[1]:o[1]+o[2]] for o in ops)
+          assert len(out)==16235323 and hashlib.sha256(out).hexdigest()=='45e8562cace556bd2d45fc3557129f26992aa7fddfeb16a7aef96ea10cbb755d'
+          pathlib.Path('diagnostic.apk').write_bytes(out)
+          with zipfile.ZipFile('diagnostic.apk') as z:
+              assert len(z.infolist())==32 and z.testzip() is None
+              assert not any('libgame' in n.lower() or 'exvius' in n.lower() for n in z.namelist())
+          PY
+          sha256sum diagnostic.apk | tee evidence/exact-apk.sha256
+          bt="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          "$bt" verify --verbose --print-certs diagnostic.apk > evidence/signature.txt
+          grep -F '0f759675d0b98456b5d22ff9a395b55f022abd403033370d97e87fc40d3060e4' evidence/signature.txt
+          "$(dirname "$bt")/aapt" dump badging diagnostic.apk > evidence/badging.txt
+          grep -F "package: name='org.ffbe.diagnostic95'" evidence/badging.txt
+      - name: Prepare disposable API35 emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/stage99"
+          uname -m > evidence/host.txt
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check | tee evidence/accel.txt
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          (yes || true) | sdkmanager --licenses > evidence/licenses.log 2>&1
+          timeout 420 sdkmanager "system-images;android-35;google_apis;x86_64" > evidence/sdk-image.log 2>&1
+          cat "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/source.properties" > evidence/system-image.txt
+          echo no | avdmanager create avd -n stage99 -k "system-images;android-35;google_apis;x86_64" --force > evidence/avd.log 2>&1
+          nohup emulator -avd stage99 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel on -gpu swiftshader_indirect -memory 3072 > evidence/emulator.log 2>&1 &
+          timeout 180 adb wait-for-device
+          for n in $(seq 1 90); do
+            if [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
+            sleep 2
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
+          adb shell getprop ro.build.version.sdk | tee evidence/api.txt
+          adb shell getprop ro.product.cpu.abilist | tee evidence/abi.txt
+          adb shell getprop ro.dalvik.vm.native.bridge | tee evidence/native-bridge.txt
+          adb shell getprop ro.build.fingerprint > evidence/fingerprint.txt
+          grep -F 'arm64-v8a' evidence/abi.txt
+          adb shell input keyevent 82
+          adb shell wm size 1080x1920
+          adb shell wm density 320
+      - name: Execute exact diagnostic UI once
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/stage99"
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
+          if adb shell pm list packages org.ffbe.diagnostic95 | grep -Fx 'package:org.ffbe.diagnostic95'; then echo 'Unexpected preexisting diagnostic'; exit 1; fi
+          adb install diagnostic.apk | tee evidence/install.txt
+          grep -Fx Success evidence/install.txt
+          adb shell am start -W -n org.ffbe.diagnostic95/.DiagnosticActivity | tee evidence/start.txt
+          python3 - <<'PY'
+          import subprocess as sp, time, re, xml.etree.ElementTree as E, pathlib
+          p=pathlib.Path('evidence')
+          def adb(*a):return sp.check_output(['adb',*a],timeout=30)
+          def dump():
+              adb('shell','uiautomator','dump','/sdcard/stage99-window.xml')
+              raw=adb('exec-out','cat','/sdcard/stage99-window.xml')
+              return raw,E.fromstring(raw)
+          def capture(label,raw):
+              (p/(label+'.xml')).write_bytes(raw)
+              (p/(label+'.png')).write_bytes(adb('exec-out','screencap','-p'))
+          def wait(text,label=None,seconds=40):
+              until=time.monotonic()+seconds
+              while time.monotonic()<until:
+                  try: raw,root=dump()
+                  except (sp.SubprocessError,E.ParseError):time.sleep(2);continue
+                  values=[x.get('text','') for x in root.iter('node')]
+                  if any('Diagnostic BLOCKED' in t or 'Preparation blocked' in t or 'Busy or previous uncertain' in t for t in values):
+                      capture('blocked',raw);raise RuntimeError('Observed diagnostic BLOCKED')
+                  if any(text.lower() in t.lower() for t in values):
+                      if label:capture(label,raw)
+                      return root
+                  time.sleep(2)
+              try:capture('timeout-'+(label or 'button'),raw)
+              except Exception:pass
+              raise RuntimeError('Timed out awaiting '+text)
+          def tap(text):
+              root=wait(text)
+              matches=[x for x in root.iter('node') if x.get('text','').casefold()==text.casefold() and x.get('enabled')=='true']
+              assert len(matches)==1,(text,len(matches))
+              a,b,c,d=map(int,re.findall(r'\d+',matches[0].get('bounds','')))
+              adb('shell','input','tap',str((a+c)//2),str((b+d)//2))
+          tap('Review synthetic save')
+          wait('Gil: 8 -> 9','01-review')
+          tap('Cancel')
+          wait('Consent cancelled; no transaction.','02-cancel')
+          tap('Review synthetic save')
+          wait('Synthetic diagnostic review')
+          adb('shell','input','keyevent','3')
+          time.sleep(3)
+          adb('shell','am','start','-W','-n','org.ffbe.diagnostic95/.DiagnosticActivity')
+          tap('Refresh report')
+          wait('Consent cancelled','03-background')
+          tap('Test stale review rejection')
+          wait('Synthetic diagnostic review')
+          tap('Confirm')
+          wait('Stale review denied PASS; no transaction.','04-stale')
+          tap('Review synthetic save')
+          wait('Gil: 8 -> 9')
+          tap('Confirm')
+          root=wait('Diagnostic PASS (synthetic only)','05-final',seconds=150)
+          report='\n'.join(x.get('text','') for x in root.iter('node') if x.get('text',''))
+          (p/'report.txt').write_text(report)
+          expected=['External lock exclusion before write','Preference XML/queue/24 writes PASS','Chaquopy same-process callbacks, bytes/map and independent commit witness PASS','External lock exclusion after write','Final preference and absent keychain witness','External lock reacquisition after drain','Diagnostic PASS (synthetic only)']
+          assert all(s.lower() in report.lower() for s in expected),report
+          (p/'outcome.txt').write_text('CLOUD SYNTHETIC DIAGNOSTIC PASS — ARM translation, not physical-device/game acceptance\n')
+          PY
+      - name: Preserve actual logs and screenshots
+        if: always()
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/stage99"
+          if "$ANDROID_HOME/platform-tools/adb" devices | grep -q 'emulator-.*device'; then
+            "$ANDROID_HOME/platform-tools/adb" logcat -d -t 2000 > evidence/logcat.txt || true
+            "$ANDROID_HOME/platform-tools/adb" exec-out screencap -p > evidence/last-screen.png || true
+          fi
+      - name: Upload only cloud diagnostic observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage99-cloud-diagnostic-evidence
+          path: ${{ runner.temp }}/stage99/evidence
+          if-no-files-found: error
+          retention-days: 14
