@@ -148,10 +148,14 @@ jobs:
           uname -m > evidence/host.txt
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -accel-check | tee evidence/accel.txt
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          sdk="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          test -n "$sdk"
+          export PATH="$(dirname "$sdk"):$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
           (yes || true) | sdkmanager --licenses > evidence/licenses.log 2>&1
-          timeout 420 sdkmanager "system-images;android-35;google_apis;x86_64" > evidence/sdk-image.log 2>&1
+          timeout 600 sdkmanager "emulator" "platform-tools" "system-images;android-35;google_apis;x86_64" > evidence/sdk-image.log 2>&1
+          test -x "$ANDROID_HOME/emulator/emulator"
+          "$ANDROID_HOME/emulator/emulator" -accel-check | tee evidence/accel.txt
+          "$ANDROID_HOME/emulator/emulator" -version > evidence/emulator-version.txt 2>&1
           cat "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/source.properties" > evidence/system-image.txt
           echo no | avdmanager create avd -n stage99 -k "system-images;android-35;google_apis;x86_64" --force > evidence/avd.log 2>&1
           nohup emulator -avd stage99 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel on -gpu swiftshader_indirect -memory 3072 > evidence/emulator.log 2>&1 &
