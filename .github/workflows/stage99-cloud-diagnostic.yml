@@ -160,9 +160,29 @@ jobs:
           ldd "$ANDROID_HOME/emulator/qemu/linux-x86_64/qemu-system-x86_64" > evidence/qemu-ldd.txt
           "$ANDROID_HOME/emulator/emulator" -version > evidence/emulator-version.txt 2>&1
           cat "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/source.properties" > evidence/system-image.txt
-          echo no | avdmanager create avd -n stage99 -k "system-images;android-35;google_apis;x86_64" --force > evidence/avd.log 2>&1
+          export ANDROID_USER_HOME="$RUNNER_TEMP/stage99/android-user"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          unset ANDROID_SDK_HOME ANDROID_EMULATOR_HOME
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | avdmanager create avd -n stage99 -k "system-images;android-35;google_apis;x86_64" -p "$ANDROID_AVD_HOME/stage99.avd" --force > evidence/avd.log 2>&1
+          find "$ANDROID_USER_HOME" "$HOME/.android" -maxdepth 4 -name 'stage99*' -print > evidence/avd-paths.txt
+          test -s "$ANDROID_AVD_HOME/stage99.avd/config.ini"
+          if [ ! -s "$ANDROID_AVD_HOME/stage99.ini" ]; then
+            printf 'avd.ini.encoding=UTF-8\npath=%s\npath.rel=avd/stage99.avd\ntarget=android-35\n' "$ANDROID_AVD_HOME/stage99.avd" > "$ANDROID_AVD_HOME/stage99.ini"
+          fi
+          cat "$ANDROID_AVD_HOME/stage99.ini" > evidence/avd-ini.txt
+          emulator -list-avds | tee evidence/avd-list.txt
+          grep -Fx stage99 evidence/avd-list.txt
+          adb start-server
           nohup emulator -avd stage99 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel on -gpu swiftshader_indirect -memory 3072 > evidence/emulator.log 2>&1 &
-          timeout 180 adb wait-for-device
+          emu_pid=$!
+          for n in $(seq 1 90); do
+            kill -0 "$emu_pid" || { cat evidence/emulator.log; exit 1; }
+            if adb devices | grep -qE '^emulator-[0-9]+[[:space:]]+device'; then break; fi
+            sleep 2
+          done
+          adb devices | tee evidence/adb-devices.txt
+          grep -qE '^emulator-[0-9]+[[:space:]]+device' evidence/adb-devices.txt
           for n in $(seq 1 90); do
             if [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
             sleep 2
