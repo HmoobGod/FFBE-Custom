@@ -1,0 +1,203 @@
+name: Stage102 exact signed diagnostic100 retest
+on:
+  push:
+    branches: [stage102-cloud-diagnostic100-retest]
+    paths: ['.github/workflows/stage102-cloud-retest.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Restore and verify exact signed diagnostic100
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage102/evidence"
+          cd "$RUNNER_TEMP/stage102"
+          curl -fLsS --retry 2 --max-time 120 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/15250069435/zip" -o previous.zip
+          echo '708bd44a4d7f96d67c747deb7f242e17879b433e33c6ae9910da97a919265ddf  previous.zip' | sha256sum -c -
+          unzip -p previous.zip FFBE-Isolated-Diagnostic100-SIGNED.apk > diagnostic.apk
+          echo 'fa2442cec2c2ad4b675033480041df36e819974ed1a85e2a14a5a063c6085600  diagnostic.apk' | sha256sum -c - | tee evidence/exact-apk.txt
+          bt="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          "$bt" verify --verbose --print-certs diagnostic.apk > evidence/signature.txt
+          grep -F 'db2e515c590e06f25abe1020b5cdeb229e09edf4706c83af5173df276608a5b6' evidence/signature.txt
+          "$(dirname "$bt")/aapt" dump badging diagnostic.apk > evidence/badging.txt
+          grep -F "package: name='org.ffbe.diagnostic100'" evidence/badging.txt
+          rm previous.zip
+      - name: Prepare disposable API35 emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/stage102"
+          uname -m > evidence/host.txt
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          sdk="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          test -n "$sdk"
+          export PATH="$(dirname "$sdk"):$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          (yes || true) | sdkmanager --licenses > evidence/licenses.log 2>&1
+          timeout 600 sdkmanager "emulator" "platform-tools" "system-images;android-35;google_apis;x86_64" > evidence/sdk-image.log 2>&1
+          test -x "$ANDROID_HOME/emulator/emulator"
+          "$ANDROID_HOME/emulator/emulator" -accel-check | tee evidence/accel.txt
+          sudo apt-get update > evidence/host-dependencies.log 2>&1
+          sudo apt-get install -y --no-install-recommends libpulse0 libnss3 libx11-6 libxcomposite1 libxcursor1 libxi6 libxtst6 libxrandr2 libxrender1 libxfixes3 libxext6 libxcb1 libgl1 libegl1 libasound2t64 libdbus-1-3 libfontconfig1 libxkbcommon0 >> evidence/host-dependencies.log 2>&1
+          ldd "$ANDROID_HOME/emulator/qemu/linux-x86_64/qemu-system-x86_64" > evidence/qemu-ldd.txt
+          "$ANDROID_HOME/emulator/emulator" -version > evidence/emulator-version.txt 2>&1
+          cat "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/source.properties" > evidence/system-image.txt
+          export ANDROID_USER_HOME="$RUNNER_TEMP/stage102/android-user"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          unset ANDROID_SDK_HOME ANDROID_EMULATOR_HOME
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | avdmanager create avd -n stage102 -k "system-images;android-35;google_apis;x86_64" -p "$ANDROID_AVD_HOME/stage102.avd" --force > evidence/avd.log 2>&1
+          find "$ANDROID_USER_HOME" -maxdepth 4 -name 'stage102*' -print > evidence/avd-paths.txt
+          if [ -d "$HOME/.android" ]; then
+            find "$HOME/.android" -maxdepth 4 -name 'stage102*' -print >> evidence/avd-paths.txt
+          fi
+          test -s "$ANDROID_AVD_HOME/stage102.avd/config.ini"
+          if [ ! -s "$ANDROID_AVD_HOME/stage102.ini" ]; then
+            printf 'avd.ini.encoding=UTF-8\npath=%s\npath.rel=avd/stage102.avd\ntarget=android-35\n' "$ANDROID_AVD_HOME/stage102.avd" > "$ANDROID_AVD_HOME/stage102.ini"
+          fi
+          cat "$ANDROID_AVD_HOME/stage102.ini" > evidence/avd-ini.txt
+          emulator -list-avds | tee evidence/avd-list.txt
+          grep -Fx stage102 evidence/avd-list.txt
+          adb start-server
+          nohup emulator -avd stage102 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -accel on -gpu swiftshader_indirect -memory 3072 > evidence/emulator.log 2>&1 &
+          emu_pid=$!
+          for n in $(seq 1 90); do
+            kill -0 "$emu_pid" || { cat evidence/emulator.log; exit 1; }
+            if adb devices | grep -qE '^emulator-[0-9]+[[:space:]]+device'; then break; fi
+            sleep 2
+          done
+          adb devices | tee evidence/adb-devices.txt
+          grep -qE '^emulator-[0-9]+[[:space:]]+device' evidence/adb-devices.txt
+          for n in $(seq 1 90); do
+            if [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
+            sleep 2
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
+          adb shell getprop ro.build.version.sdk | tee evidence/api.txt
+          adb shell getprop ro.product.cpu.abilist | tee evidence/abi.txt
+          adb shell getprop ro.dalvik.vm.native.bridge | tee evidence/native-bridge.txt
+          adb shell getprop ro.build.fingerprint > evidence/fingerprint.txt
+          grep -F 'arm64-v8a' evidence/abi.txt
+          adb shell input keyevent 82
+          adb shell wm size 1080x1920
+          adb shell wm density 320
+      - name: Execute exact diagnostic UI once
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/stage102"
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
+          if adb shell pm list packages org.ffbe.diagnostic100 | grep -Fx 'package:org.ffbe.diagnostic100'; then echo 'Unexpected preexisting diagnostic'; exit 1; fi
+          adb install diagnostic.apk | tee evidence/install.txt
+          grep -Fx Success evidence/install.txt
+          adb shell am start -W -n org.ffbe.diagnostic100/org.ffbe.diagnostic95.DiagnosticActivity | tee evidence/start.txt
+          python3 - <<'PY'
+          import subprocess as sp, time, re, xml.etree.ElementTree as E, pathlib
+          p=pathlib.Path('evidence')
+          def adb(*a):return sp.check_output(['adb',*a],timeout=30)
+          def dump():
+              adb('shell','uiautomator','dump','/sdcard/stage102-window.xml')
+              raw=adb('exec-out','cat','/sdcard/stage102-window.xml')
+              return raw,E.fromstring(raw)
+          def capture(label,raw):
+              (p/(label+'.xml')).write_bytes(raw)
+              (p/(label+'.png')).write_bytes(adb('exec-out','screencap','-p'))
+          launcher_dialogs=0
+          def wait(text,label=None,seconds=75):
+              global launcher_dialogs
+              until=time.monotonic()+seconds
+              while time.monotonic()<until:
+                  try: raw,root=dump()
+                  except (sp.SubprocessError,E.ParseError):time.sleep(2);continue
+                  nodes=list(root.iter('node'))
+                  values=[x.get('text','') for x in nodes]
+                  alerts=[x for x in nodes if x.get('resource-id')=='android:id/alertTitle' and x.get('package')=='android']
+                  if alerts:
+                      title=alerts[0].get('text','')
+                      if title=="Pixel Launcher isn't responding":
+                          launcher_dialogs+=1
+                          capture('launcher-anr-'+str(launcher_dialogs),raw)
+                          if launcher_dialogs>2:raise RuntimeError('Repeated launcher ANR')
+                          close=[x for x in nodes if x.get('resource-id')=='android:id/aerr_close' and x.get('package')=='android' and x.get('text')=='Close app' and x.get('enabled')=='true']
+                          assert len(close)==1
+                          a,b,c,d=map(int,re.findall(r'\d+',close[0].get('bounds','')))
+                          adb('shell','input','tap',str((a+c)//2),str((b+d)//2))
+                          time.sleep(2)
+                          continue
+                      if "isn't responding" in title or "keeps stopping" in title:
+                          capture('unexpected-system-error',raw)
+                          raise RuntimeError('Unexpected Android error dialog: '+title)
+                  if any('Diagnostic BLOCKED' in t or 'Preparation blocked' in t or 'Busy or previous uncertain' in t for t in values):
+                      capture('blocked',raw)
+                      report='\n'.join(t for t in values if t)
+                      (p/'report.txt').write_text(report)
+                      print(report,flush=True)
+                      raise RuntimeError('Observed diagnostic BLOCKED')
+                  if any(text.lower() in t.lower() for t in values):
+                      if label:capture(label,raw)
+                      return root
+                  time.sleep(2)
+              try:capture('timeout-'+(label or 'button'),raw)
+              except Exception:pass
+              raise RuntimeError('Timed out awaiting '+text)
+          def tap(text):
+              root=wait(text)
+              matches=[x for x in root.iter('node') if x.get('text','').casefold()==text.casefold() and x.get('enabled')=='true']
+              assert len(matches)==1,(text,len(matches))
+              a,b,c,d=map(int,re.findall(r'\d+',matches[0].get('bounds','')))
+              adb('shell','input','tap',str((a+c)//2),str((b+d)//2))
+          wait('No probe has run.','00-initial')
+          tap('Review synthetic save')
+          wait('Gil: 8 -> 9','01-review')
+          tap('Cancel')
+          wait('Consent cancelled; no transaction.','02-cancel')
+          tap('Review synthetic save')
+          wait('Synthetic diagnostic review')
+          # Real background lifecycle through Settings, not the unstable launcher.
+          adb('shell','am','start','-W','-a','android.settings.SETTINGS')
+          time.sleep(3)
+          raw,root=dump()
+          assert any(n.get('package')=='com.android.settings' for n in root.iter('node')), 'Settings did not reach foreground'
+          capture('03-settings-foreground',raw)
+          adb('shell','am','start','-W','-n','org.ffbe.diagnostic100/org.ffbe.diagnostic95.DiagnosticActivity')
+          tap('Refresh report')
+          wait('Consent cancelled','03-background')
+          tap('Test stale review rejection')
+          wait('Synthetic diagnostic review')
+          tap('Confirm')
+          wait('Stale review denied PASS; no transaction.','04-stale')
+          tap('Review synthetic save')
+          wait('Gil: 8 -> 9')
+          tap('Confirm')
+          root=wait('Diagnostic PASS (synthetic only)','05-final',seconds=150)
+          report='\n'.join(x.get('text','') for x in root.iter('node') if x.get('text',''))
+          (p/'report.txt').write_text(report)
+          expected=['External lock exclusion before write','Preference XML/queue/24 writes PASS','Chaquopy same-process callbacks, bytes/map and independent commit witness PASS','External lock exclusion after write','Final preference and absent keychain witness','External lock reacquisition after drain','Diagnostic PASS (synthetic only)']
+          assert all(s.lower() in report.lower() for s in expected),report
+          (p/'outcome.txt').write_text('CLOUD SYNTHETIC DIAGNOSTIC PASS — ARM translation, not physical-device/game acceptance\n')
+          PY
+      - name: Preserve actual logs and screenshots
+        if: always()
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/stage102"
+          if "$ANDROID_HOME/platform-tools/adb" devices | grep -q 'emulator-.*device'; then
+            "$ANDROID_HOME/platform-tools/adb" logcat -d -t 2000 > evidence/logcat.txt || true
+            "$ANDROID_HOME/platform-tools/adb" logcat -d -s FFBEDiagnostic100:I > evidence/diagnostic-phases.txt || true
+            "$ANDROID_HOME/platform-tools/adb" exec-out screencap -p > evidence/last-screen.png || true
+          fi
+      - name: Upload only cloud diagnostic observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage102-exact-diagnostic100-retest
+          path: ${{ runner.temp }}/stage102/evidence
+          if-no-files-found: error
+          retention-days: 14
