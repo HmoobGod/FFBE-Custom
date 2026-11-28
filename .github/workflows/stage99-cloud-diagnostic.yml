@@ -165,7 +165,10 @@ jobs:
           unset ANDROID_SDK_HOME ANDROID_EMULATOR_HOME
           mkdir -p "$ANDROID_AVD_HOME"
           printf 'no\n' | avdmanager create avd -n stage99 -k "system-images;android-35;google_apis;x86_64" -p "$ANDROID_AVD_HOME/stage99.avd" --force > evidence/avd.log 2>&1
-          find "$ANDROID_USER_HOME" "$HOME/.android" -maxdepth 4 -name 'stage99*' -print > evidence/avd-paths.txt
+          find "$ANDROID_USER_HOME" -maxdepth 4 -name 'stage99*' -print > evidence/avd-paths.txt
+          if [ -d "$HOME/.android" ]; then
+            find "$HOME/.android" -maxdepth 4 -name 'stage99*' -print >> evidence/avd-paths.txt
+          fi
           test -s "$ANDROID_AVD_HOME/stage99.avd/config.ini"
           if [ ! -s "$ANDROID_AVD_HOME/stage99.ini" ]; then
             printf 'avd.ini.encoding=UTF-8\npath=%s\npath.rel=avd/stage99.avd\ntarget=android-35\n' "$ANDROID_AVD_HOME/stage99.avd" > "$ANDROID_AVD_HOME/stage99.ini"
