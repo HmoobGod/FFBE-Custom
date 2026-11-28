@@ -1,0 +1,31 @@
+name: Stage86 public CPython tool recovery
+on:
+  push:
+    branches: [stage86-python310-tool-recovery]
+    paths: [.github/workflows/stage86-python310-tool-recovery.yml]
+permissions:
+  contents: read
+jobs:
+  recover-public-tool:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Download exact public release and verify digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p public-tool
+          curl --fail --location --retry 1 --max-time 180 'https://github.com/astral-sh/python-build-standalone/releases/download/20260728/cpython-3.10.20%2B20260728-x86_64-unknown-linux-gnu-install_only.tar.gz' -o public-tool/cpython310.tar.gz
+          echo '5b6ae36e239727dd9b9c567023261e8b2fdd716d25dde2b15d68bf105b782856  public-tool/cpython310.tar.gz' | sha256sum -c -
+          mkdir runtime
+          tar -xzf public-tool/cpython310.tar.gz -C runtime
+          runtime/python/bin/python3.10 -c "import sys,importlib.util; assert sys.version_info[:3]==(3,10,20); assert importlib.util.MAGIC_NUMBER.hex()=='6f0d0d0a'; print(sys.version,importlib.util.MAGIC_NUMBER.hex())" | tee public-tool/runtime-identity.txt
+          sha256sum public-tool/cpython310.tar.gz >> public-tool/runtime-identity.txt
+      - name: Upload public tool only
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffbe-stage86-public-cpython310
+          path: public-tool/
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
