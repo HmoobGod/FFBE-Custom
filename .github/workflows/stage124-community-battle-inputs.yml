@@ -1,0 +1,41 @@
+name: Stage124 recover exact public community battle inputs
+on:
+  push:
+    branches: [stage124-community-battle-inputs]
+    paths: ['.github/workflows/stage124-community-battle-inputs.yml']
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve and verify exact upstream Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir -p stage124/content/battle
+          cd stage124
+          while read -r pin path; do
+            curl -fLsS --retry 2 --max-time 90 "https://raw.githubusercontent.com/Elvlin/exvius-offline/b520e563cbc4364a07ee40331012340dc8aeb841/source/server/$path" -o "$path"
+            test "$(git hash-object "$path")" = "$pin"
+            sha256sum "$path" >> members.sha256
+          done <<'PINS'
+          06508a71dadd1acd70203f372853dac56da60339 content/battle/F_BATTLE_GROUP_MST.tsv
+          818a60303df54b45ce1746482d0a29bf859624b2 content/battle/F_BATTLE_LOTTERY_MST.tsv
+          5d9d0a1c3079988c9daaebbdfcfa6d6a4506aef7 content/battle/F_MISSION_PHASE_MST.tsv
+          633dfbd43fdc0c91211ef62fb41ee0d3292b54db content/battle/F_MONSTER_MST.tsv
+          e75ec01f6e2320f735d5ac76d603057bff6e56ae content/battle/F_MONSTER_PARTS_MST.tsv
+          58422a9ecfb7fb961632736a219e556dea40aea6 content/battle/F_MONSTER_SKILL_MST.tsv
+          89e93e2ebdbe61c179a5980cc90cb2a023fbc797 content/battle/F_MONSTER_SKILL_SET_MST.tsv
+          47765624b47e5c4ffeaf1fca51580c75bdf81317 event_battles.json
+          ab3805816195512ba8865ebb2850a323716d2414 event_encounters.json
+          18a9db20687a9a44dbbd8edca919418e8de00625 battle_content.py
+          PINS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage124-community-battle-inputs
+          path: ${{ runner.temp }}/stage124/
+          if-no-files-found: error
+          retention-days: 14
