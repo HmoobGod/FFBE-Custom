@@ -1,0 +1,36 @@
+name: Stage118 public API tools only
+on:
+  push:
+    branches: [stage118-public-api-tools]
+    paths: ['.github/workflows/stage118-public-api-tools.yml']
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/stage118-public-api-tools.yml']
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Recover exact previously pinned public API jars
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/public-api"
+          cd "$RUNNER_TEMP/public-api"
+          curl -fL --retry 2 --max-time 120 https://dl.google.com/android/repository/platform-33-ext3_r03.zip -o platform.zip
+          echo 'b32b10f787867987f03ae8e101d217e053a9065b7136379fb353b388379aed1d  platform.zip' | sha256sum -c -
+          unzip -p platform.zip android-13/android.jar > android.jar
+          echo 'fd628aa21321859a9035c6aae4b084b7d3fdb3f230be5cd5ec76541e32f7c963  android.jar' | sha256sum -c -
+          curl -fL --retry 2 --max-time 60 https://repo.maven.apache.org/maven2/com/chaquo/python/runtime/chaquopy_java/16.1.0/chaquopy_java-16.1.0.jar -o chaquopy_java-16.1.0.jar
+          echo '670a08cbe53b22130b1c3d2ddd4b79fd667aa70cf0a9e9ba6493106613fdecf6  chaquopy_java-16.1.0.jar' | sha256sum -c -
+          sha256sum android.jar chaquopy_java-16.1.0.jar > public-api.sha256
+          rm platform.zip
+      - name: Preserve only public API jars and hashes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage118-public-api-jars
+          path: ${{ runner.temp }}/public-api/
+          retention-days: 14
+          if-no-files-found: error
