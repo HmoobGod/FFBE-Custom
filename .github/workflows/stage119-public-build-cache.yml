@@ -1,0 +1,228 @@
+name: Stage119 public tools and strict dependency cache recovery
+on:
+  push:
+    branches: [stage119-public-build-cache]
+    paths: ['.github/workflows/stage119-public-build-cache.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cache:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Recover pinned public tools and existing verification metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage119"/{tools,sdk/platforms,sdk/build-tools,project/gradle,project/src/main/python,pack,parts}
+          cd "$RUNNER_TEMP/stage119"
+          curl -fL --retry 2 --max-time 180 https://services.gradle.org/distributions/gradle-7.5.1-bin.zip -o tools/gradle.zip
+          echo 'f6b8596b10cce501591e92f229816aa4046424f3b24d771751b06779d58c8ec4  tools/gradle.zip' | sha256sum -c -
+          unzip -q tools/gradle.zip -d tools
+          curl -fL --retry 2 --max-time 180 https://dl.google.com/android/repository/platform-33-ext3_r03.zip -o tools/platform.zip
+          echo 'b32b10f787867987f03ae8e101d217e053a9065b7136379fb353b388379aed1d  tools/platform.zip' | sha256sum -c -
+          unzip -q tools/platform.zip -d tools/platform
+          mv tools/platform/android-13 sdk/platforms/android-33
+          curl -fL --retry 2 --max-time 180 https://dl.google.com/android/repository/build-tools_r36_linux.zip -o tools/build-tools.zip
+          echo '5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b  tools/build-tools.zip' | sha256sum -c -
+          unzip -q tools/build-tools.zip -d tools/build-tools
+          mv tools/build-tools/android-16 sdk/build-tools/36.0.0
+          curl -fL --retry 2 --max-time 180 https://github.com/astral-sh/python-build-standalone/releases/download/20260728/cpython-3.10.20%2B20260728-x86_64-unknown-linux-gnu-install_only.tar.gz -o tools/python.tar.gz
+          echo '5b6ae36e239727dd9b9c567023261e8b2fdd716d25dde2b15d68bf105b782856  tools/python.tar.gz' | sha256sum -c -
+          tar -xzf tools/python.tar.gz -C tools
+          curl -fLsS --retry 2 --max-time 120 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/15252193097/zip" -o previous.zip
+          echo '944060234f7542a47d4169a6ccb06bb4be8f218267d4dec1b9581a55a2a4d4fb  previous.zip' | sha256sum -c -
+          unzip -p previous.zip verification-metadata.xml > project/gradle/verification-metadata.xml
+          echo '02b0ce8a46c1cc2a71f7e520fda6aea48f735f167c4d00df2c7e35a2a0e5469e  project/gradle/verification-metadata.xml' | sha256sum -c -
+          unzip -p previous.zip dependencies.sha256 > pack/stage107-dependencies.sha256
+          echo '569fe9d45bcf78685b30d4cd449d724046f19deed573659892608af7e3d3a789  pack/stage107-dependencies.sha256' | sha256sum -c -
+          rm previous.zip
+          test -d "$JAVA_HOME_17_X64"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$PWD/sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$PWD/sdk" >> "$GITHUB_ENV"
+          echo "GRADLE_USER_HOME=$PWD/gradle-home" >> "$GITHUB_ENV"
+      - name: Populate verified dependencies with generic empty app
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/stage119"
+          cat > project/settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = 'PublicToolCache'
+          EOF
+          cat > project/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '7.4.2'
+              id 'com.chaquo.python' version '16.1.0'
+          }
+          android {
+              namespace 'org.example.publiccache'
+              compileSdk 33
+              buildToolsVersion '36.0.0'
+              defaultConfig {
+                  applicationId 'org.example.publiccache'
+                  minSdk 26
+                  targetSdk 33
+                  versionCode 1
+                  versionName '1'
+                  ndk { abiFilters 'arm64-v8a' }
+              }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_11; targetCompatibility JavaVersion.VERSION_11 }
+          }
+          chaquopy { defaultConfig { version '3.10'; buildPython providers.gradleProperty('diagnosticPython').get() } }
+          EOF
+          printf '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="Public cache"/></manifest>\n' > project/src/main/AndroidManifest.xml
+          mkdir -p project/src/main/java/org/example/publiccache
+          printf 'package org.example.publiccache; public final class CacheProbe {}\n' > project/src/main/java/org/example/publiccache/CacheProbe.java
+          printf 'def probe(): return 1\n' > project/src/main/python/cache_probe.py
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > project/local.properties
+          "$JAVA_HOME/bin/java" -version 2>&1 | tee pack/java-version.txt
+          tools/gradle-7.5.1/bin/gradle -p project --no-daemon --console=plain --dependency-verification strict "-PdiagnosticPython=$PWD/tools/python/bin/python3.10" assembleRelease 2>&1 | tee pack/warm-cache.log
+          tools/gradle-7.5.1/bin/gradle -p project --offline --no-daemon --console=plain --dependency-verification strict "-PdiagnosticPython=$PWD/tools/python/bin/python3.10" assembleRelease 2>&1 | tee pack/offline-check.log
+          (cd gradle-home/caches/modules-2/files-2.1 && find . -type f -print0 | sort -z | xargs -0 -r sha256sum) > pack/dependencies.sha256
+          python3 - <<'PY'
+          from pathlib import Path
+          a=set(Path('pack/stage107-dependencies.sha256').read_text().splitlines())
+          b=set(Path('pack/dependencies.sha256').read_text().splitlines())
+          assert b and b <= a, sorted(b-a)[:10]
+          print('verified dependency files:',len(b),'prior cached files:',len(a))
+          PY
+      - name: Archive public tools and verified Gradle modules only
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/stage119"
+          cp tools/{gradle.zip,platform.zip,build-tools.zip} pack/
+          cp project/gradle/verification-metadata.xml pack/
+          tar -czf pack/jdk17.tar.gz -C "$JAVA_HOME" .
+          tar -czf pack/modules-2.tar.gz --exclude='*.lock' --exclude='gc.properties' -C gradle-home/caches modules-2
+          (cd pack && sha256sum * > ../parts/files.sha256)
+          tar -cf cache.tar -C pack .
+          sha256sum cache.tar > parts/cache.sha256
+          split -b 64M -d -a 2 cache.tar parts/cache.part
+          (cd parts && sha256sum cache.part* > parts.sha256)
+          count=$(find parts -name 'cache.part*' | wc -l)
+          test "$count" -le 12
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+      - name: Publish cache receipts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-receipts
+          path: |
+            ${{ runner.temp }}/stage119/parts/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 00
+        if: ${{ fromJSON(steps.pack.outputs.count) > 0 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-00
+          path: ${{ runner.temp }}/stage119/parts/cache.part00
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 01
+        if: ${{ fromJSON(steps.pack.outputs.count) > 1 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-01
+          path: ${{ runner.temp }}/stage119/parts/cache.part01
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 02
+        if: ${{ fromJSON(steps.pack.outputs.count) > 2 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-02
+          path: ${{ runner.temp }}/stage119/parts/cache.part02
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 03
+        if: ${{ fromJSON(steps.pack.outputs.count) > 3 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-03
+          path: ${{ runner.temp }}/stage119/parts/cache.part03
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 04
+        if: ${{ fromJSON(steps.pack.outputs.count) > 4 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-04
+          path: ${{ runner.temp }}/stage119/parts/cache.part04
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 05
+        if: ${{ fromJSON(steps.pack.outputs.count) > 5 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-05
+          path: ${{ runner.temp }}/stage119/parts/cache.part05
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 06
+        if: ${{ fromJSON(steps.pack.outputs.count) > 6 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-06
+          path: ${{ runner.temp }}/stage119/parts/cache.part06
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 07
+        if: ${{ fromJSON(steps.pack.outputs.count) > 7 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-07
+          path: ${{ runner.temp }}/stage119/parts/cache.part07
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 08
+        if: ${{ fromJSON(steps.pack.outputs.count) > 8 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-08
+          path: ${{ runner.temp }}/stage119/parts/cache.part08
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 09
+        if: ${{ fromJSON(steps.pack.outputs.count) > 9 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-09
+          path: ${{ runner.temp }}/stage119/parts/cache.part09
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 10
+        if: ${{ fromJSON(steps.pack.outputs.count) > 10 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-10
+          path: ${{ runner.temp }}/stage119/parts/cache.part10
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish public tools cache part 11
+        if: ${{ fromJSON(steps.pack.outputs.count) > 11 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage119-public-cache-11
+          path: ${{ runner.temp }}/stage119/parts/cache.part11
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
