@@ -42,6 +42,19 @@ def unpack_zip(src,out):
 def tar_extract(src,out):
     out.mkdir(parents=True,exist_ok=True)
     with tarfile.open(src,'r:*') as t:t.extractall(out,filter='data')
+def extract_jdk(src,out):
+    # Runner Adoptium package has an external certificate-store symlink.
+    # Never follow it; copy the local system trust store for this offline build.
+    out.mkdir(parents=True,exist_ok=True)
+    skipped=[]
+    def filt(member,path):
+        if member.name=='./lib/security/cacerts' and member.issym() and member.linkname=='/etc/ssl/certs/adoptium/cacerts':
+            skipped.append(member.name);return None
+        return tarfile.data_filter(member,path)
+    with tarfile.open(src,'r:gz') as t:t.extractall(out,filter=filt)
+    require(len(skipped)==1,'Unexpected JDK trust store shape')
+    shutil.copyfile('/etc/ssl/certs/java/cacerts',out/'lib/security/cacerts')
+    print('JDK runner trust-store symlink replaced with local offline trust store.')
 def stage_cache(parts,out,runtime):
     rows=read_hashes(parts/'parts.sha256');names=sorted(rows)
     require(names==[f'cache.part{i:02}' for i in range(len(names))] and 0<len(names)<=12,'Parts inventory')
@@ -57,7 +70,7 @@ def stage_cache(parts,out,runtime):
     unpack_zip(pack/'gradle.zip',out/'tools');unpack_zip(pack/'platform.zip',out/'platform');unpack_zip(pack/'build-tools.zip',out/'buildtools')
     (out/'sdk/platforms').mkdir(parents=True);(out/'sdk/build-tools').mkdir();shutil.move(out/'platform/android-13',out/'sdk/platforms/android-33');shutil.move(out/'buildtools/android-16',out/'sdk/build-tools/36.0.0')
     pin(out/'sdk/platforms/android-33/android.jar','fd628aa21321859a9035c6aae4b084b7d3fdb3f230be5cd5ec76541e32f7c963')
-    tar_extract(pack/'jdk17.tar.gz',out/'jdk17');tar_extract(pack/'modules-2.tar.gz',out/'gradle-home/caches')
+    extract_jdk(pack/'jdk17.tar.gz',out/'jdk17');tar_extract(pack/'modules-2.tar.gz',out/'gradle-home/caches')
     prior=read_hashes(pack/'stage107-dependencies.sha256');current=read_hashes(pack/'dependencies.sha256');require(current and all(prior.get(k)==v for k,v in current.items()),'Unpinned dependency')
     deps=out/'gradle-home/caches/modules-2/files-2.1';require({str(p.relative_to(deps)) for p in deps.rglob('*') if p.is_file()}=={str(P(k)) for k in current},'Cache file inventory')
     for n,v in current.items():pin(deps/n,v)
